@@ -1,0 +1,79 @@
+{
+  "compliant": {
+    "overall_score": 92,
+    "sub_scores": {
+      "cipher_strength": 1.0,
+      "key_exchange": 0.95,
+      "mode_pfs": 1.0,
+      "metadata_exposure": 0.8,
+      "pqc_readiness": 0.5
+    },
+    "tunnels": [
+      {
+        "id": "tun-101",
+        "status": "active",
+        "encryption": "AES-256-GCM",
+        "dh_group": 20,
+        "pfs_enabled": true,
+        "inferred_mode": "Tunnel",
+        "inner_traffic": "HTTPS"
+      },
+      {
+        "id": "tun-102",
+        "status": "active",
+        "encryption": "AES-256-GCM",
+        "dh_group": 19,
+        "pfs_enabled": true,
+        "inferred_mode": "Tunnel",
+        "inner_traffic": "VoIP"
+      }
+    ],
+    "ai_metrics": {
+      "confidence_score": 0.96,
+      "heuristic_agreement": true
+    }
+  },
+  "critical": {
+    "overall_score": 58,
+    "sub_scores": {
+      "cipher_strength": 0.4,
+      "key_exchange": 0.3,
+      "mode_pfs": 0.5,
+      "metadata_exposure": 0.9,
+      "pqc_readiness": 0.0
+    },
+    "tunnels": [
+      {
+        "id": "tun-001",
+        "status": "active",
+        "encryption": "AES-256-GCM",
+        "dh_group": 19,
+        "pfs_enabled": true,
+        "inferred_mode": "Tunnel",
+        "inner_traffic": "HTTPS"
+      },
+      {
+        "id": "tun-002",
+        "status": "flagged",
+        "encryption": "AES-128-CBC",
+        "dh_group": 14,
+        "pfs_enabled": false,
+        "inferred_mode": "Transport",
+        "inner_traffic": "VoIP"
+      },
+      {
+        "id": "tun-003",
+        "status": "critical",
+        "encryption": "3DES",
+        "dh_group": 2,
+        "pfs_enabled": false,
+        "inferred_mode": "Tunnel",
+        "inner_traffic": "ICMP"
+      }
+    ],
+    "ai_metrics": {
+      "confidence_score": 0.88,
+      "heuristic_agreement": false
+    }
+  }
+}
