@@ -1,0 +1,21 @@
+{
+  "control_plane": {
+    "ike_version": "IKEv2",
+    "operating_mode": "Tunnel",
+    "encryption_algorithm": "AES-128-CBC",
+    "integrity_algorithm": "HMAC-SHA256",
+    "dh_group": 14,
+    "pfs_enabled": false,
+    "key_lifetime_seconds": 28800,
+    "replay_protection_enabled": true
+  },
+  "data_plane": {
+    "detected_traffic": [
+      {"traffic_type": "VoIP", "percentage": 45.2, "packet_count": 1240, "avg_packet_size_bytes": 160},
+      {"traffic_type": "Video Streaming", "percentage": 38.8, "packet_count": 890, "avg_packet_size_bytes": 1380},
+      {"traffic_type": "Messaging", "percentage": 16.0, "packet_count": 210, "avg_packet_size_bytes": 85}
+    ],
+    "heuristic_mode_prediction": "Tunnel",
+    "llm_mode_prediction": "Tunnel"
+  }
+}

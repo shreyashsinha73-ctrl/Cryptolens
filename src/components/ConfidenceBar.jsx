@@ -1,7 +1,7 @@
 import React from 'react';
 
-const ConfidenceBar = ({ confidenceScore }) => {
-  const percentage = Math.round((confidenceScore || 0) * 100);
+const ConfidenceBar = ({ confidence }) => {
+  const percentage = Math.round((confidence || 0) * 100);
 
   return (
     <div className="w-full">

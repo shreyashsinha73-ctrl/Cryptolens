@@ -44,6 +44,7 @@ class SummaryData(BaseModel):
     risk_level: str
     ai_confidence_score: float = Field(..., ge=0.0, le=1.0)
     agreement_flag: bool
+    processed_packets: int = 0
 
 class AnalysisResultResponse(BaseModel):
     job_id: str

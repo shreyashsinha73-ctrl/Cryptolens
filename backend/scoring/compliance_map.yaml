@@ -1,0 +1,120 @@
+encryption:
+  AES-256-GCM:
+    awarded_points: 25
+  AES-128-GCM:
+    awarded_points: 25
+  AES-256-CBC:
+    awarded_points: 20
+  AES-128-CBC:
+    awarded_points: 15
+    finding:
+      severity: MEDIUM
+      finding_id: ENC_001
+      title: "Suboptimal Encryption Cipher"
+      description: "AES-128-CBC is acceptable but AES-GCM is recommended for modern deployments."
+  3DES:
+    awarded_points: 0
+    finding:
+      severity: CRITICAL
+      finding_id: WEAK_CIPHER
+      title: "Critically Weak Encryption"
+      description: "3DES is cryptographically broken and deprecated. Immediate upgrade required."
+
+integrity:
+  HMAC-SHA256:
+    awarded_points: 15
+  HMAC-SHA384:
+    awarded_points: 15
+  HMAC-SHA512:
+    awarded_points: 15
+  HMAC-SHA1:
+    awarded_points: 0
+    finding:
+      severity: HIGH
+      finding_id: INT_001
+      title: "Deprecated Integrity Algorithm"
+      description: "SHA-1 is susceptible to collision attacks and is deprecated by NIST."
+  NONE:
+    awarded_points: 0
+    finding:
+      severity: CRITICAL
+      finding_id: INT_002
+      title: "No Integrity Protection"
+      description: "Payload integrity is not guaranteed."
+
+key_exchange:
+  19:
+    awarded_points: 15
+  20:
+    awarded_points: 15
+  21:
+    awarded_points: 15
+  14:
+    awarded_points: 10
+    finding:
+      severity: MEDIUM
+      finding_id: KEX_001
+      title: "Legacy DH Group"
+      description: "DH Group 14 (2048-bit MODP) is acceptable but ECP groups (19, 20, 21) are preferred."
+  2:
+    awarded_points: 0
+    finding:
+      severity: CRITICAL
+      finding_id: KEX_002
+      title: "Weak DH Group"
+      description: "DH Group 2 (1024-bit MODP) is insecure against well-resourced attackers."
+
+pfs:
+  true:
+    awarded_points: 10
+  false:
+    awarded_points: 0
+    finding:
+      severity: HIGH
+      finding_id: PFS_DISABLED
+      title: "PFS Disabled"
+      description: "Perfect Forward Secrecy is disabled. Past traffic may be decrypted if long-term keys are compromised."
+
+replay_protection:
+  true:
+    awarded_points: 10
+  false:
+    awarded_points: 0
+    finding:
+      severity: HIGH
+      finding_id: REPLAY_DISABLED
+      title: "Replay Protection Disabled"
+      description: "The tunnel is vulnerable to packet replay attacks."
+
+key_lifetime:
+  valid:
+    awarded_points: 10
+  invalid:
+    awarded_points: 0
+    finding:
+      severity: MEDIUM
+      finding_id: LIFE_001
+      title: "Excessive Key Lifetime"
+      description: "Key lifetime exceeds the recommended maximum of 24 hours (86400s), increasing exposure window."
+
+ike_version:
+  IKEv2:
+    awarded_points: 10
+  IKEv1:
+    awarded_points: 0
+    finding:
+      severity: HIGH
+      finding_id: IKE_001
+      title: "Deprecated IKE Version"
+      description: "IKEv1 is deprecated and susceptible to various design flaws. Upgrade to IKEv2."
+
+mode:
+  Tunnel:
+    awarded_points: 5
+  Transport:
+    awarded_points: 2
+    finding:
+      severity: LOW
+      finding_id: MODE_001
+      title: "Transport Mode Active"
+      description: "Transport mode does not hide IP headers, potentially leaking metadata."

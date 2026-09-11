@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-const ScoreDial = ({ overall_score }) => {
-  const score = Math.min(Math.max(overall_score || 0, 0), 100);
+const ScoreDial = ({ score: propScore, riskLevel }) => {
+  const score = Math.min(Math.max(propScore || 0, 0), 100);
   
   const [currentScore, setCurrentScore] = useState(0);
   const [displayNumber, setDisplayNumber] = useState(0);
@@ -41,16 +41,16 @@ const ScoreDial = ({ overall_score }) => {
   }, [score]);
 
   let colorCode = '#f43f5e'; // Rose
-  let verdictText = 'CRITICAL ACTION REQUIRED';
+  let verdictText = riskLevel ? riskLevel.toUpperCase() : 'CRITICAL ACTION REQUIRED';
   let verdictBg = 'bg-rose-500/10 text-rose-400 border-rose-500/20 shadow-[0_0_8px_rgba(244,63,94,0.2)]';
 
   if (score >= 85) {
     colorCode = '#10b981'; // Emerald
-    verdictText = 'LOW RISK';
+    verdictText = riskLevel ? riskLevel.toUpperCase() : 'LOW RISK';
     verdictBg = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.2)]';
   } else if (score >= 70) {
     colorCode = '#f59e0b'; // Amber
-    verdictText = 'MEDIUM RISK';
+    verdictText = riskLevel ? riskLevel.toUpperCase() : 'MEDIUM RISK';
     verdictBg = 'bg-amber-500/10 text-amber-400 border-amber-500/20 shadow-[0_0_8px_rgba(245,158,11,0.2)]';
   }
 

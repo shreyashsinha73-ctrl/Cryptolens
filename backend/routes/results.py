@@ -1,7 +1,12 @@
+import json
+import aiofiles
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
 from backend.schemas.analysis import AnalysisResultResponse, ErrorResponse
 
 router = APIRouter()
+
+STORED_RESULTS_DIR = Path("backend/stored_results")
 
 @router.get(
     "/results/{job_id}",
@@ -9,54 +14,51 @@ router = APIRouter()
     responses={404: {"model": ErrorResponse}}
 )
 async def get_results(job_id: str):
-    if job_id == "invalid_job":
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error_code": "JOB_NOT_FOUND", "message": f"Job ID '{job_id}' does not exist."}
+    result_file = STORED_RESULTS_DIR / f"{job_id}.json"
+    
+    # TEMPORARY FALLBACK for the UI demo or when processing is still incomplete
+    if job_id == "job_demo" or not result_file.exists():
+        from backend.services.analyzer_provider import AnalyzerProvider
+        from backend.scoring.scoring_engine import ScoringEngine
+        
+        scorer = ScoringEngine()
+        provider = AnalyzerProvider()
+        
+        # Load the mock data directly from the JSON file
+        mock_file = Path("backend/mock_data/analysis_input.json")
+        if mock_file.exists():
+            with open(mock_file, "r") as f:
+                analysis_input = json.load(f)
+        else:
+            raise HTTPException(status_code=500, detail="Mock data file missing.")
+        evaluation = scorer.evaluate(analysis_input)
+        
+        # Calculate total processed packets from data_plane
+        processed_packets = sum(item.get("packet_count", 0) for item in analysis_input.get("data_plane", {}).get("detected_traffic", []))
+        
+        return AnalysisResultResponse(
+            job_id=job_id,
+            status="completed",
+            summary={
+                "overall_risk_score": evaluation["score"],
+                "risk_level": evaluation["risk_level"],
+                "ai_confidence_score": evaluation["ai_confidence"],
+                "agreement_flag": evaluation["agreement_flag"],
+                "processed_packets": processed_packets
+            },
+            control_plane=analysis_input["control_plane"],
+            data_plane=analysis_input["data_plane"],
+            threat_matrix=evaluation["findings"]
         )
 
-    return AnalysisResultResponse(
-        job_id=job_id,
-        status="completed",
-        summary={
-            "overall_risk_score": 78,
-            "risk_level": "HIGH",
-            "ai_confidence_score": 0.92,
-            "agreement_flag": True
-        },
-        control_plane={
-            "ike_version": "IKEv2",
-            "operating_mode": "Tunnel",
-            "encryption_algorithm": "AES-128-CBC",
-            "integrity_algorithm": "HMAC-SHA2-256",
-            "dh_group": 14,
-            "pfs_enabled": False,
-            "key_lifetime_seconds": 28800,
-            "replay_protection_enabled": True
-        },
-        data_plane={
-            "detected_traffic": [
-                {"traffic_type": "VoIP", "percentage": 45.2, "packet_count": 1240, "avg_packet_size_bytes": 160},
-                {"traffic_type": "Video Streaming", "percentage": 38.8, "packet_count": 890, "avg_packet_size_bytes": 1380},
-                {"traffic_type": "WhatsApp/Messaging", "percentage": 16.0, "packet_count": 210, "avg_packet_size_bytes": 85}
-            ],
-            "heuristic_mode_prediction": "Tunnel",
-            "llm_mode_prediction": "Tunnel"
-        },
-        threat_matrix=[
-            {
-                "id": "VULN-001",
-                "severity": "HIGH",
-                "category": "Forward Secrecy",
-                "title": "Perfect Forward Secrecy (PFS) Disabled",
-                "description": "If the private key is compromised, all recorded past traffic can be retroactively decrypted."
-            },
-            {
-                "id": "VULN-002",
-                "severity": "MEDIUM",
-                "category": "Cipher Strength",
-                "title": "Legacy Cipher Suite (AES-CBC without AEAD)",
-                "description": "CBC mode without authenticated encryption leaves traffic vulnerable to padding attacks."
-            }
-        ]
-    )
+    if not result_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error_code": "JOB_NOT_FOUND", "message": f"Job ID '{job_id}' does not exist or is still processing."}
+        )
+
+    async with aiofiles.open(result_file, "r") as f:
+        content = await f.read()
+        
+    data = json.loads(content)
+    return AnalysisResultResponse(**data)

@@ -1,7 +1,7 @@
 import React from 'react';
 
-const AgreementFlag = ({ heuristicAgreement }) => {
-  if (heuristicAgreement) {
+const AgreementFlag = ({ agreement }) => {
+  if (agreement) {
     return (
       <div className="w-full flex items-center p-3.5 bg-emerald-950/30 border border-emerald-900/50 rounded-lg shadow-sm">
         <span className="flex-shrink-0 w-4 h-4 text-emerald-500 mr-3 shadow-[0_0_8px_rgba(16,185,129,0.5)] rounded-full">
