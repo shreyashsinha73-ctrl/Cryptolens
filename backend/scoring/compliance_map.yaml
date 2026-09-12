@@ -21,6 +21,9 @@ encryption:
       description: "3DES is cryptographically broken and deprecated. Immediate upgrade required."
 
 integrity:
+  AEAD:
+    awarded_points: 15
+    description: "Authenticated encryption provides confidentiality and integrity protection."
   HMAC-SHA256:
     awarded_points: 15
   HMAC-SHA384:
@@ -87,6 +90,7 @@ replay_protection:
       description: "The tunnel is vulnerable to packet replay attacks."
 
 key_lifetime:
+  max_seconds: 86400
   valid:
     awarded_points: 10
   invalid:
@@ -94,8 +98,8 @@ key_lifetime:
     finding:
       severity: MEDIUM
       finding_id: LIFE_001
-      title: "Excessive Key Lifetime"
-      description: "Key lifetime exceeds the recommended maximum of 24 hours (86400s), increasing exposure window."
+      title: "Extended Key Lifetime"
+      description: "The configured key lifetime is longer than the configured assessment threshold. Review the lifetime based on the deployment's security requirements and key-management policy."
 
 ike_version:
   IKEv2:
@@ -112,9 +116,5 @@ mode:
   Tunnel:
     awarded_points: 5
   Transport:
-    awarded_points: 2
-    finding:
-      severity: LOW
-      finding_id: MODE_001
-      title: "Transport Mode Active"
-      description: "Transport mode does not hide IP headers, potentially leaking metadata."
+    awarded_points: 5
+    
