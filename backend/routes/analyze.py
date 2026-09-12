@@ -2,18 +2,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 import aiofiles
-import json
 import asyncio
 from fastapi import APIRouter, File, HTTPException, UploadFile, status, BackgroundTasks
 from backend.schemas.analysis import ErrorResponse, UploadResponse, AnalysisResultResponse
 from backend.scoring.scoring_engine import ScoringEngine
+from backend.services.result_store import ResultStore
 
 router = APIRouter()
 
 UPLOAD_DIR = Path("backend/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-STORED_RESULTS_DIR = Path("backend/stored_results")
-STORED_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".pcap", ".pcapng", ".cap"}
 
 from backend.services.analyzer_provider import AnalyzerProvider
@@ -21,38 +19,50 @@ from backend.services.analyzer_provider import AnalyzerProvider
 # 2. Instantiate the engines globally for the route
 scorer = ScoringEngine()
 provider = AnalyzerProvider()
+result_store = ResultStore()
 
 async def process_pcap_pipeline(job_id: str, file_path: Path):
-    # Retrieve control_plane and data_plane from the real AnalyzerProvider
-    analysis_input = provider.analyze(str(file_path))
-    
-    # 3. Execute the evaluation
-    evaluation = scorer.evaluate(analysis_input)
-    
-    # Calculate total processed packets
-    processed_packets = sum(item.get("packet_count", 0) for item in analysis_input.get("data_plane", {}).get("detected_traffic", []))
-    
-    # 4. Construct the final AnalysisResultResponse dict
-    result_payload = {
-        "job_id": job_id,
-        "status": "completed",
-        "summary": {
-            "overall_risk_score": evaluation["score"],
-            "risk_level": evaluation["risk_level"],
-            "ai_confidence_score": evaluation["ai_confidence"],
-            "agreement_flag": evaluation["agreement_flag"],
-            "processed_packets": processed_packets
-        },
-        "control_plane": analysis_input["control_plane"],
-        "data_plane": analysis_input["data_plane"],
-        "threat_matrix": evaluation["findings"]
-    }
-    
-    # 5. Persist this final payload to disk
-    result_file = STORED_RESULTS_DIR / f"{job_id}.json"
-    async with aiofiles.open(result_file, "w") as f:
-        await f.write(json.dumps(result_payload))
+    try:
+        analysis_input = provider.get_analysis(str(file_path))
 
+        evaluation = scorer.evaluate(analysis_input)
+
+        processed_packets = sum(
+            item.get("packet_count", 0)
+            for item in analysis_input.get("data_plane", {}).get(
+                "detected_traffic", []
+            )
+        )
+
+        result_payload = {
+            "job_id": job_id,
+            "status": "completed",
+            "summary": {
+                "overall_risk_score": evaluation["score"],
+                "risk_level": evaluation["risk_level"],
+                "ai_confidence_score": evaluation["ai_confidence_score"],
+                "agreement_flag": evaluation["agreement_flag"],
+                "processed_packets": processed_packets,
+            },
+            "control_plane": analysis_input["control_plane"],
+            "data_plane": analysis_input["data_plane"],
+            "score_breakdown": evaluation["score_breakdown"],
+            "threat_matrix": evaluation["findings"],
+        }
+
+        result_store.save(job_id, result_payload)
+
+    except Exception as exc:
+        error_payload = {
+            "job_id": job_id,
+            "status": "failed",
+            "error": {
+                "error_code": "ANALYSIS_FAILED",
+                "message": str(exc),
+            },
+        }
+
+        result_store.save(job_id, error_payload)
 @router.post(
     "/analyze",
     response_model=UploadResponse,

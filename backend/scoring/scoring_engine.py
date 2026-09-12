@@ -151,15 +151,68 @@ class ScoringEngine:
         control_plane = analysis_input.get('control_plane', {})
         data_plane = analysis_input.get('data_plane', {})
 
-        score = 0
-        score += self.evaluate_encryption(control_plane,findings)
-        score += self.evaluate_integrity(control_plane,findings)
-        score += self.evaluate_key_exchange(control_plane,findings)
-        score += self.evaluate_pfs(control_plane,findings)
-        score += self.evaluate_replay_protection(control_plane,findings)
-        score += self.evaluate_key_lifetime(control_plane,findings)
-        score += self.evaluate_ike_version(control_plane,findings)
-        score += self.evaluate_mode(control_plane,findings)
+        encryption_score = self.evaluate_encryption(control_plane, findings)
+        integrity_score = self.evaluate_integrity(control_plane, findings)
+        key_exchange_score = self.evaluate_key_exchange(control_plane, findings)
+        pfs_score = self.evaluate_pfs(control_plane, findings)
+        replay_protection_score = self.evaluate_replay_protection(
+            control_plane,
+            findings
+            )
+        key_lifetime_score = self.evaluate_key_lifetime(
+            control_plane,
+            findings
+        )
+        ike_version_score = self.evaluate_ike_version(
+            control_plane,
+            findings
+        )
+        mode_score = self.evaluate_mode(control_plane, findings)
+
+        score = (
+            encryption_score
+            + integrity_score
+            + key_exchange_score
+            + pfs_score
+            + replay_protection_score
+            + key_lifetime_score
+            + ike_version_score
+            + mode_score
+        )
+        score_breakdown = {
+            "encryption": {
+                "score": encryption_score,
+                "max_score": self.weights["encryption"]
+            },
+            "integrity": {
+                "score": integrity_score,
+                "max_score": self.weights["integrity"]
+            },
+            "key_exchange": {
+                "score": key_exchange_score,
+                "max_score": self.weights["key_exchange"]
+            },
+            "pfs": {
+                "score": pfs_score,
+                "max_score": self.weights["pfs"]
+            },
+            "replay_protection": {
+                "score": replay_protection_score,
+                "max_score": self.weights["replay_protection"]
+            },
+            "key_lifetime": {
+                "score": key_lifetime_score,
+                "max_score": self.weights["key_lifetime"]
+            },
+            "ike_version": {
+                "score": ike_version_score,
+                "max_score": self.weights["ike_version"]
+            },
+            "mode": {
+                "score": mode_score,
+                "max_score": self.weights["mode"]
+            }
+        }
 
         # Final score normalization
         score = round(score, 2)
@@ -183,10 +236,11 @@ class ScoringEngine:
 
         risk_level = self.get_risk_level(score)
 
-        return{
+        return {
             "score": score,
             "risk_level": risk_level,
             "findings": findings,
+            "score_breakdown": score_breakdown,
             "ai_confidence_score": ai_confidence,
             "agreement_flag": agreement_flag
         }
