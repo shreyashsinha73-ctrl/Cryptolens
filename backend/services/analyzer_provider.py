@@ -1,4 +1,3 @@
-import json
 import os
 from pathlib import Path
 
@@ -8,11 +7,10 @@ from backend.schemas.analysis import ControlPlaneData, DataPlaneData
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-MOCK_JSON_PATH = BASE_DIR / "mock_data" / "analysis_input.json"
 
 
 class AnalyzerProvider:
-    def __init__(self, mode: str = "mock"):
+    def __init__(self, mode: str = "real"):
         self.mode = mode.lower()
 
         if self.mode not in {"mock", "real"}:
@@ -23,18 +21,14 @@ class AnalyzerProvider:
 
     def get_analysis(self, pcap_path: str):
         if self.mode == "mock":
-            return self._get_mock_analysis()
+            # Only if explicitly forced via ANALYZER_MODE=mock
+            mock_path = BASE_DIR / "mock_data" / "analysis_input.json"
+            if mock_path.exists():
+                import json
+                with mock_path.open("r", encoding="utf-8") as f:
+                    return json.load(f)
 
         return self._get_real_analysis(pcap_path)
-
-    def _get_mock_analysis(self):
-        if not MOCK_JSON_PATH.exists():
-            raise FileNotFoundError(
-                f"Mock analysis file not found: {MOCK_JSON_PATH}"
-            )
-
-        with MOCK_JSON_PATH.open("r", encoding="utf-8") as file:
-            return json.load(file)
 
     def _get_real_analysis(self, pcap_path: str):
         control_plane_raw = parse_pcap(pcap_path)
@@ -51,5 +45,5 @@ class AnalyzerProvider:
 
 
 def get_analyzer_provider() -> AnalyzerProvider:
-    mode = os.getenv("ANALYZER_MODE", "mock")
+    mode = os.getenv("ANALYZER_MODE", "real")
     return AnalyzerProvider(mode=mode)

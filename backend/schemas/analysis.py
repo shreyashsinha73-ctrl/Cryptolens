@@ -13,14 +13,14 @@ class UploadResponse(BaseModel):
     uploaded_at: str
 
 class ControlPlaneData(BaseModel):
-    ike_version: str = "IKEv2"
-    operating_mode: str = "Tunnel"
-    encryption_algorithm: str = "AES-128-CBC"
-    integrity_algorithm: str = "HMAC-SHA2-256"
-    dh_group: int = 14
-    pfs_enabled: bool = False
-    key_lifetime_seconds: int = 28800
-    replay_protection_enabled: bool = True
+    ike_version: Optional[str] = None
+    operating_mode: Optional[str] = None
+    encryption_algorithm: Optional[str] = None
+    integrity_algorithm: Optional[str] = None
+    dh_group: Optional[Any] = None
+    pfs_enabled: Optional[bool] = None
+    key_lifetime_seconds: Optional[int] = None
+    replay_protection_enabled: Optional[bool] = None
 
 class TrafficItem(BaseModel):
     traffic_type: str
@@ -30,11 +30,11 @@ class TrafficItem(BaseModel):
 
 
 class DataPlaneData(BaseModel):
-    detected_traffic: List[TrafficItem]
-    heuristic_mode_prediction: str = "Tunnel"
-    llm_mode_prediction: str = "Tunnel"
-    ai_confidence_score: float = Field(..., ge=0.0, le=1.0)
-    agreement_flag: bool
+    detected_traffic: List[TrafficItem] = Field(default_factory=list)
+    heuristic_mode_prediction: Optional[str] = None
+    llm_mode_prediction: Optional[str] = None
+    ai_confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    agreement_flag: bool = False
 
 class ScoreCategory(BaseModel):
     score: float = Field(..., ge=0.0)
@@ -87,7 +87,7 @@ class ComplianceResult(BaseModel):
 class ThreatItem(BaseModel):
     finding_id: str
     severity: str
-    category: str
+    category: str = "General"
     title: str
     description: str
     observed_value: Optional[Any] = None
