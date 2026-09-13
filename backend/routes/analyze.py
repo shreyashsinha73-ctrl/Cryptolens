@@ -2,11 +2,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 import aiofiles
-import asyncio
 from fastapi import APIRouter, File, HTTPException, UploadFile, status, BackgroundTasks
-from backend.schemas.analysis import ErrorResponse, UploadResponse, AnalysisResultResponse
+from backend.schemas.analysis import ErrorResponse, UploadResponse
 from backend.scoring.scoring_engine import ScoringEngine
 from backend.services.result_store import ResultStore
+from backend.services.analyzer_provider import get_analyzer_provider
 from backend.scoring.compliance_engine import ComplianceEngine
 
 router = APIRouter()
@@ -19,17 +19,25 @@ from backend.services.analyzer_provider import AnalyzerProvider
 
 # 2. Instantiate the engines globally for the route
 scorer = ScoringEngine()
-provider = AnalyzerProvider()
+provider = get_analyzer_provider()
 compliance_engine = ComplianceEngine()
 result_store = ResultStore()
 
 async def process_pcap_pipeline(job_id: str, file_path: Path):
     try:
+        # Part 2 is now integrated through AnalyzerProvider.
+        # The provider calls IkeParser.parse(), unwraps control_plane,
+        # and normalizes parser output for the backend contract.
         analysis_input = provider.get_analysis(str(file_path))
 
+        # Part 5: authoritative security scoring
         evaluation = scorer.evaluate(analysis_input)
+
+        # Part 5: standards alignment
         compliance_result = compliance_engine.evaluate(analysis_input)
 
+        # Calculate processed packet count from the available data plane.
+        # This remains compatible with the current placeholder Part 3.
         processed_packets = sum(
             item.get("packet_count", 0)
             for item in analysis_input.get("data_plane", {}).get(
@@ -47,8 +55,8 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
                 "agreement_flag": evaluation["agreement_flag"],
                 "processed_packets": processed_packets,
             },
-            "control_plane": analysis_input["control_plane"],
-            "data_plane": analysis_input["data_plane"],
+            "control_plane": analysis_input.get("control_plane"),
+            "data_plane": analysis_input.get("data_plane"),
             "score_breakdown": evaluation["score_breakdown"],
             "threat_matrix": evaluation["findings"],
             "compliance": compliance_result,

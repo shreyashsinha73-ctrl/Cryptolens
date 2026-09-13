@@ -162,8 +162,8 @@ class ScoringEngine:
 
     def evaluate(self, analysis_input: dict):
         findings = []
-        control_plane = analysis_input.get('control_plane', {})
-        data_plane = analysis_input.get('data_plane', {})
+        control_plane = analysis_input.get("control_plane") or {}
+        data_plane = analysis_input.get("data_plane") or {}
 
         encryption_score = self.evaluate_encryption(control_plane, findings)
         integrity_score = self.evaluate_integrity(control_plane, findings)

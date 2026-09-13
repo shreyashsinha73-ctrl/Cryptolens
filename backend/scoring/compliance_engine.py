@@ -281,7 +281,7 @@ class ComplianceEngine:
         }
         """
 
-        control_plane = analysis_input.get("control_plane", {})
+        control_plane = analysis_input.get("control_plane") or {}
 
         if not isinstance(control_plane, dict):
             raise ValueError(

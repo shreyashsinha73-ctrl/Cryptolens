@@ -1,27 +1,7 @@
 """
-backend.engine.control_plane package
-Provides deterministic IKE handshake parsing and compliance rules evaluation.
+Root alias for engine.control_plane package, delegating to backend.engine.control_plane.
 """
 
-from backend.engine.control_plane.ike_parser import (
-    IkeDeterministicParser,
-    IkeParseResult,
-    EvidenceItem,
-    parse_pcap,
-)
-from backend.engine.control_plane.rules_engine import (
-    ControlPlaneRulesEngine,
-    RulesEngineResult,
-    RuleFinding,
-)
-
-__all__ = [
-    "IkeDeterministicParser",
-    "IkeParseResult",
-    "EvidenceItem",
-    "parse_pcap",
-    "ControlPlaneRulesEngine",
-    "RulesEngineResult",
-    "RuleFinding",
-]
+from backend.engine.control_plane.ike_parser import *
+from backend.engine.control_plane.rules_engine import *
 
