@@ -1,0 +1,6 @@
+torch
+scikit-learn
+scapy
+onnx
+onnxscript
+numpy
