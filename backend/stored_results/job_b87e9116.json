@@ -1,0 +1,8 @@
+{
+  "job_id": "job_b87e9116",
+  "status": "failed",
+  "error": {
+    "error_code": "ANALYSIS_FAILED",
+    "message": "'AnalyzerProvider' object has no attribute 'get_analysis'"
+  }
+}

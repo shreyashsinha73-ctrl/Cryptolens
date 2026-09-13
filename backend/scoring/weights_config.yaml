@@ -1,0 +1,8 @@
+encryption: 25
+integrity: 15
+key_exchange: 15
+pfs: 10
+replay_protection: 10
+key_lifetime: 10
+ike_version: 10
+mode: 5

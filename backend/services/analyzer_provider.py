@@ -2,20 +2,16 @@ import json
 import os
 from pathlib import Path
 
+from backend.engine.control_plane.ike_parser import parse_pcap
+from backend.engine.data_plane.traffic_analyzer import analyze_data_plane
+from backend.schemas.analysis import ControlPlaneData, DataPlaneData
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MOCK_JSON_PATH = BASE_DIR / "mock_data" / "analysis_input.json"
 
 
 class AnalyzerProvider:
-    """
-    Provides analysis JSON to the backend.
-
-    Modes:
-        mock -> reads analysis_input.json
-        real -> placeholder for the real Part 1-4 pipeline
-    """
-
     def __init__(self, mode: str = "mock"):
         self.mode = mode.lower()
 
@@ -25,54 +21,35 @@ class AnalyzerProvider:
                 "Use 'mock' or 'real'."
             )
 
-    def get_analysis(self, pcap_path: str) -> dict:
-        """
-        Analyze the supplied PCAP and return JSON A as a Python dictionary.
-        """
-
+    def get_analysis(self, pcap_path: str):
         if self.mode == "mock":
             return self._get_mock_analysis()
 
         return self._get_real_analysis(pcap_path)
 
-    def _get_mock_analysis(self) -> dict:
-        """Load the dummy JSON A from disk."""
-
+    def _get_mock_analysis(self):
         if not MOCK_JSON_PATH.exists():
             raise FileNotFoundError(
                 f"Mock analysis file not found: {MOCK_JSON_PATH}"
             )
 
-        with open(MOCK_JSON_PATH, "r", encoding="utf-8") as file:
-            data = json.load(file)
+        with MOCK_JSON_PATH.open("r", encoding="utf-8") as file:
+            return json.load(file)
 
-        return data
+    def _get_real_analysis(self, pcap_path: str):
+        control_plane_raw = parse_pcap(pcap_path)
+        data_plane_raw = analyze_data_plane(pcap_path)
 
-    def _get_real_analysis(self, pcap_path: str) -> dict:
-        """
-        Run the real Part 1-4 pipeline.
-
-        TODO:
-        Replace this with the actual integration once
-        Parts 1-4 provide their interfaces.
-        """
-
-        raise NotImplementedError(
-            "Real analyzer integration is not connected yet. "
-            "Set ANALYZER_MODE=mock for the POC."
-        )
+        return {
+            "control_plane": ControlPlaneData(
+                **control_plane_raw
+            ).model_dump(),
+            "data_plane": DataPlaneData(
+                **data_plane_raw
+            ).model_dump(),
+        }
 
 
 def get_analyzer_provider() -> AnalyzerProvider:
-    """
-    Create the analyzer provider using the ANALYZER_MODE
-    environment variable.
-
-    Example:
-        ANALYZER_MODE=mock
-        ANALYZER_MODE=real
-    """
-
     mode = os.getenv("ANALYZER_MODE", "mock")
-
     return AnalyzerProvider(mode=mode)
