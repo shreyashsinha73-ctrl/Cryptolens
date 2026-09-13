@@ -41,7 +41,7 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
             "job_id": job_id,
             "status": "completed",
             "summary": {
-                "overall_risk_score": evaluation["score"],
+                "overall_risk_score": 100 - evaluation["score"],
                 "risk_level": evaluation["risk_level"],
                 "ai_confidence_score": evaluation["ai_confidence_score"],
                 "agreement_flag": evaluation["agreement_flag"],

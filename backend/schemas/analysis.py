@@ -21,14 +21,12 @@ class ControlPlaneData(BaseModel):
     pfs_enabled: bool = False
     key_lifetime_seconds: int = 28800
     replay_protection_enabled: bool = True
-    integrity_algorithm: Optional[str] = None
 
 class TrafficItem(BaseModel):
     traffic_type: str
     percentage: float
     packet_count: int
-    avg_packet_size_bytes: int
-    avg_packet_size_bytes: float = Field(..., gt=0)
+    avg_packet_size_bytes: float = Field(..., ge=0)
 
 
 class DataPlaneData(BaseModel):

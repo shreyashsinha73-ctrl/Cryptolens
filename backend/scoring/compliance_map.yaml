@@ -26,9 +26,17 @@ integrity:
     description: "Authenticated encryption provides confidentiality and integrity protection."
   HMAC-SHA256:
     awarded_points: 15
+  HMAC-SHA2-256:
+    awarded_points: 15
+  HMAC-SHA2-256-128:
+    awarded_points: 15
   HMAC-SHA384:
     awarded_points: 15
+  HMAC-SHA2-384:
+    awarded_points: 15
   HMAC-SHA512:
+    awarded_points: 15
+  HMAC-SHA2-512:
     awarded_points: 15
   HMAC-SHA1:
     awarded_points: 0
