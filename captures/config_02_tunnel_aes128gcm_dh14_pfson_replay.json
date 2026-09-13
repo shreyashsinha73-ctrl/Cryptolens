@@ -1,0 +1,13 @@
+{
+  "replay_test_executed": true,
+  "interface": "veth_a",
+  "target_spi": "0xc17532bd",
+  "target_seq_no": 142,
+  "duplicates_injected": 3,
+  "initial_replay_errors": 0,
+  "final_replay_errors": 0,
+  "replay_errors_detected": 0,
+  "replay_protection_confirmed": true,
+  "status": "CONFIRMED",
+  "description": "Duplicate ESP packet was successfully recognized and rejected by anti-replay protection."
+}

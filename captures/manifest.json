@@ -1,0 +1,167 @@
+{
+  "dataset_version": "1.0",
+  "captures": [
+    {
+      "config_id": "config_01_tunnel_aes256gcm_dh19_pfson",
+      "pcap_file": "config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
+      "pcap_path": "captures/config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
+      "packet_count": 355,
+      "size_bytes": 124334,
+      "sha256": "a2a66da24b1f6366dd1af0a2af21fd5172d583ff8906cefc61ae5782792ddc20",
+      "ground_truth": {
+        "mode": "tunnel",
+        "cipher": "aes256gcm16",
+        "integrity": "aes256gcm16",
+        "prf": "prfsha256",
+        "dh_group": "ecp256",
+        "dh_group_num": 19,
+        "pfs": true,
+        "ike_version": 2,
+        "rekey_time": "3600s",
+        "traffic_type": "all",
+        "replay_protection_verified": true,
+        "benchmark_scores": {
+          "c_score": 1.0,
+          "k_score": 1.0,
+          "m_score": 1.0,
+          "compliance": "NIST SP 800-77 Rev 1 / CNSA 2.0 Compliant"
+        }
+      }
+    },
+    {
+      "config_id": "config_02_tunnel_aes128gcm_dh14_pfson",
+      "pcap_file": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
+      "pcap_path": "captures/config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
+      "packet_count": 339,
+      "size_bytes": 119489,
+      "sha256": "e617016d22aa4c85452a5d2ea0ca7cae858d8a163f4ebfb6865b160d10c94b6c",
+      "ground_truth": {
+        "mode": "tunnel",
+        "cipher": "aes128gcm16",
+        "integrity": "aes128gcm16",
+        "prf": "prfsha256",
+        "dh_group": "modp2048",
+        "dh_group_num": 14,
+        "pfs": true,
+        "ike_version": 2,
+        "rekey_time": "7200s",
+        "traffic_type": "all",
+        "replay_protection_verified": true,
+        "benchmark_scores": {
+          "c_score": 0.85,
+          "k_score": 1.0,
+          "m_score": 1.0,
+          "compliance": "Standard Enterprise Baseline"
+        }
+      }
+    },
+    {
+      "config_id": "config_03_tunnel_aes256cbc_sha256_dh14_pfson",
+      "pcap_file": "config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap",
+      "pcap_path": "captures/config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap",
+      "packet_count": 342,
+      "size_bytes": 114067,
+      "sha256": "6fb5ebcf09d0ef367bd583ce437087239fe435f8ff039655d0416af58dd64b1f",
+      "ground_truth": {
+        "mode": "tunnel",
+        "cipher": "aes256",
+        "integrity": "sha256",
+        "prf": "prfsha256",
+        "dh_group": "modp2048",
+        "dh_group_num": 14,
+        "pfs": true,
+        "ike_version": 2,
+        "rekey_time": "14400s",
+        "traffic_type": "all",
+        "replay_protection_verified": true,
+        "benchmark_scores": {
+          "c_score": 0.75,
+          "k_score": 1.0,
+          "m_score": 1.0,
+          "compliance": "Transitional Baseline"
+        }
+      }
+    },
+    {
+      "config_id": "config_04_transport_aes128cbc_sha1_dh5_pfsoff",
+      "pcap_file": "config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap",
+      "pcap_path": "captures/config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap",
+      "packet_count": 257,
+      "size_bytes": 88574,
+      "sha256": "90bb1a6641b6d85d7fb7486b5194e4e6445bf207c438b83c2bb22f253f6d4f33",
+      "ground_truth": {
+        "mode": "transport",
+        "cipher": "aes128",
+        "integrity": "sha1",
+        "prf": "prfsha1",
+        "dh_group": "modp1536",
+        "dh_group_num": 5,
+        "pfs": false,
+        "ike_version": 2,
+        "rekey_time": "28800s",
+        "traffic_type": "all",
+        "replay_protection_verified": true,
+        "benchmark_scores": {
+          "c_score": 0.4,
+          "k_score": 0.5,
+          "m_score": 0.4,
+          "compliance": "Non-Compliant (Weak Hash & DH5, PFS Disabled, Transport Exposes Metadata)"
+        }
+      }
+    },
+    {
+      "config_id": "config_05_transport_3des_sha1_dh2_pfsoff",
+      "pcap_file": "config_05_transport_3des_sha1_dh2_pfsoff_all.pcap",
+      "pcap_path": "captures/config_05_transport_3des_sha1_dh2_pfsoff_all.pcap",
+      "packet_count": 254,
+      "size_bytes": 82252,
+      "sha256": "f13a2b8b6d51c388e640907d9510d3098f80614b3e0b8e9b9d7740f9d2e1c002",
+      "ground_truth": {
+        "mode": "transport",
+        "cipher": "3des",
+        "integrity": "sha1",
+        "prf": "prfsha1",
+        "dh_group": "modp1024",
+        "dh_group_num": 2,
+        "pfs": false,
+        "ike_version": 2,
+        "rekey_time": "86400s",
+        "traffic_type": "all",
+        "replay_protection_verified": true,
+        "benchmark_scores": {
+          "c_score": 0.0,
+          "k_score": 0.0,
+          "m_score": 0.4,
+          "compliance": "Critical Vulnerability (Sweet32 3DES, DH1024 breakable, PFS Off)"
+        }
+      }
+    },
+    {
+      "config_id": "config_06_tunnel_3des_sha1_dh2_pfsoff",
+      "pcap_file": "config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap",
+      "pcap_path": "captures/config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap",
+      "packet_count": 351,
+      "size_bytes": 126440,
+      "sha256": "449b3597828d37adfaad02b90ef49ea36fabb91aa4a848aeb5a4e12205f1b18e",
+      "ground_truth": {
+        "mode": "tunnel",
+        "cipher": "3des",
+        "integrity": "sha1",
+        "prf": "prfsha1",
+        "dh_group": "modp1024",
+        "dh_group_num": 2,
+        "pfs": false,
+        "ike_version": 2,
+        "rekey_time": "86400s",
+        "traffic_type": "all",
+        "replay_protection_verified": true,
+        "benchmark_scores": {
+          "c_score": 0.0,
+          "k_score": 0.0,
+          "m_score": 0.6,
+          "compliance": "Critical Vulnerability (Deprecated Cryptosuite)"
+        }
+      }
+    }
+  ]
+}

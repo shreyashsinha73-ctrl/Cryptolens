@@ -1,0 +1,132 @@
+{
+  "version": "1.0",
+  "total_configs": 6,
+  "configurations": [
+    {
+      "id": "config_01_tunnel_aes256gcm_dh19_pfson",
+      "name": "Modern Hardened Tunnel (AES-256-GCM + DH19 + PFS ON)",
+      "mode": "tunnel",
+      "cipher": "aes256gcm16",
+      "integrity": "aes256gcm16",
+      "prf": "prfsha256",
+      "dh_group": "ecp256",
+      "dh_group_num": 19,
+      "pfs": true,
+      "ike_version": 2,
+      "rekey_time": "3600s",
+      "config_file_peer_a": "generated/peer_a/config_01_tunnel_aes256gcm_dh19_pfson.conf",
+      "config_file_peer_b": "generated/peer_b/config_01_tunnel_aes256gcm_dh19_pfson.conf",
+      "benchmark_scores": {
+        "c_score": 1.0,
+        "k_score": 1.0,
+        "m_score": 1.0,
+        "compliance": "NIST SP 800-77 Rev 1 / CNSA 2.0 Compliant"
+      }
+    },
+    {
+      "id": "config_02_tunnel_aes128gcm_dh14_pfson",
+      "name": "Enterprise Baseline Tunnel (AES-128-GCM + DH14 + PFS ON)",
+      "mode": "tunnel",
+      "cipher": "aes128gcm16",
+      "integrity": "aes128gcm16",
+      "prf": "prfsha256",
+      "dh_group": "modp2048",
+      "dh_group_num": 14,
+      "pfs": true,
+      "ike_version": 2,
+      "rekey_time": "7200s",
+      "config_file_peer_a": "generated/peer_a/config_02_tunnel_aes128gcm_dh14_pfson.conf",
+      "config_file_peer_b": "generated/peer_b/config_02_tunnel_aes128gcm_dh14_pfson.conf",
+      "benchmark_scores": {
+        "c_score": 0.85,
+        "k_score": 1.0,
+        "m_score": 1.0,
+        "compliance": "Standard Enterprise Baseline"
+      }
+    },
+    {
+      "id": "config_03_tunnel_aes256cbc_sha256_dh14_pfson",
+      "name": "Legacy Tunnel (AES-256-CBC + SHA256 + DH14 + PFS ON)",
+      "mode": "tunnel",
+      "cipher": "aes256",
+      "integrity": "sha256",
+      "prf": "prfsha256",
+      "dh_group": "modp2048",
+      "dh_group_num": 14,
+      "pfs": true,
+      "ike_version": 2,
+      "rekey_time": "14400s",
+      "config_file_peer_a": "generated/peer_a/config_03_tunnel_aes256cbc_sha256_dh14_pfson.conf",
+      "config_file_peer_b": "generated/peer_b/config_03_tunnel_aes256cbc_sha256_dh14_pfson.conf",
+      "benchmark_scores": {
+        "c_score": 0.75,
+        "k_score": 1.0,
+        "m_score": 1.0,
+        "compliance": "Transitional Baseline"
+      }
+    },
+    {
+      "id": "config_04_transport_aes128cbc_sha1_dh5_pfsoff",
+      "name": "Weak Transport Mode (AES-128-CBC + SHA1 + DH5 + PFS OFF)",
+      "mode": "transport",
+      "cipher": "aes128",
+      "integrity": "sha1",
+      "prf": "prfsha1",
+      "dh_group": "modp1536",
+      "dh_group_num": 5,
+      "pfs": false,
+      "ike_version": 2,
+      "rekey_time": "28800s",
+      "config_file_peer_a": "generated/peer_a/config_04_transport_aes128cbc_sha1_dh5_pfsoff.conf",
+      "config_file_peer_b": "generated/peer_b/config_04_transport_aes128cbc_sha1_dh5_pfsoff.conf",
+      "benchmark_scores": {
+        "c_score": 0.4,
+        "k_score": 0.5,
+        "m_score": 0.4,
+        "compliance": "Non-Compliant (Weak Hash & DH5, PFS Disabled, Transport Exposes Metadata)"
+      }
+    },
+    {
+      "id": "config_05_transport_3des_sha1_dh2_pfsoff",
+      "name": "Severely Insecure Transport (3DES + SHA1 + DH2 + PFS OFF)",
+      "mode": "transport",
+      "cipher": "3des",
+      "integrity": "sha1",
+      "prf": "prfsha1",
+      "dh_group": "modp1024",
+      "dh_group_num": 2,
+      "pfs": false,
+      "ike_version": 2,
+      "rekey_time": "86400s",
+      "config_file_peer_a": "generated/peer_a/config_05_transport_3des_sha1_dh2_pfsoff.conf",
+      "config_file_peer_b": "generated/peer_b/config_05_transport_3des_sha1_dh2_pfsoff.conf",
+      "benchmark_scores": {
+        "c_score": 0.0,
+        "k_score": 0.0,
+        "m_score": 0.4,
+        "compliance": "Critical Vulnerability (Sweet32 3DES, DH1024 breakable, PFS Off)"
+      }
+    },
+    {
+      "id": "config_06_tunnel_3des_sha1_dh2_pfsoff",
+      "name": "Severely Insecure Tunnel (3DES + SHA1 + DH2 + PFS OFF)",
+      "mode": "tunnel",
+      "cipher": "3des",
+      "integrity": "sha1",
+      "prf": "prfsha1",
+      "dh_group": "modp1024",
+      "dh_group_num": 2,
+      "pfs": false,
+      "ike_version": 2,
+      "rekey_time": "86400s",
+      "config_file_peer_a": "generated/peer_a/config_06_tunnel_3des_sha1_dh2_pfsoff.conf",
+      "config_file_peer_b": "generated/peer_b/config_06_tunnel_3des_sha1_dh2_pfsoff.conf",
+      "benchmark_scores": {
+        "c_score": 0.0,
+        "k_score": 0.0,
+        "m_score": 0.6,
+        "compliance": "Critical Vulnerability (Deprecated Cryptosuite)"
+      }
+    }
+  ]
+}

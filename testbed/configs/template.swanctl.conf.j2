@@ -1,0 +1,45 @@
+# ==============================================================================
+# CryptoLens strongSwan swanctl.conf Template
+# Parameterized for Peer A and Peer B across 6 Core Configurations
+# ==============================================================================
+
+connections {
+    {{ conn_name }} {
+        local_addrs = {{ local_ip }}
+        remote_addrs = {{ remote_ip }}
+
+        local {
+            auth = psk
+            id = {{ local_id }}
+        }
+        remote {
+            auth = psk
+            id = {{ remote_id }}
+        }
+
+        children {
+            {{ child_name }} {
+                mode = {{ mode }}
+                local_ts = {{ local_ts }}
+                remote_ts = {{ remote_ts }}
+                esp_proposals = {{ esp_proposals }}
+                rekey_time = {{ rekey_time | default('0s') }}
+                dpd_action = none
+                start_action = none
+                updown = /bin/true
+            }
+        }
+
+        version = {{ ike_version | default(2) }}
+        proposals = {{ ike_proposals }}
+        rekey_time = {{ rekey_time | default('0s') }}
+        dpd_delay = 0s
+        encap = no
+    }
+}
+
+secrets {
+    ike-psk-{{ conn_name }} {
+        secret = "{{ psk }}"
+    }
+}
