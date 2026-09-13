@@ -48,9 +48,17 @@ standards:
             status: ALIGNED
           HMAC-SHA256:
             status: ALIGNED
+          HMAC-SHA2-256:
+            status: ALIGNED
+          HMAC-SHA2-256-128:
+            status: ALIGNED
           HMAC-SHA384:
             status: ALIGNED
+          HMAC-SHA2-384:
+            status: ALIGNED
           HMAC-SHA512:
+            status: ALIGNED
+          HMAC-SHA2-512:
             status: ALIGNED
           HMAC-SHA1:
             status: REVIEW
@@ -121,9 +129,17 @@ standards:
         values:
           HMAC-SHA384:
             status: ALIGNED
+          HMAC-SHA2-384:
+            status: ALIGNED
           HMAC-SHA512:
             status: ALIGNED
+          HMAC-SHA2-512:
+            status: ALIGNED
           HMAC-SHA256:
+            status: REVIEW
+          HMAC-SHA2-256:
+            status: REVIEW
+          HMAC-SHA2-256-128:
             status: REVIEW
           HMAC-SHA1:
             status: FAIL
