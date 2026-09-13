@@ -17,6 +17,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, Union
 
 # Allowed label values per project specification
@@ -26,6 +27,26 @@ VALID_TRAFFIC_TYPES = {"https", "voip", "icmp", "unknown"}
 # Supported backends
 BACKEND_LLM = "llm"
 BACKEND_CNN = "cnn"
+
+def _load_env_fallback():
+    current = Path(__file__).resolve()
+    for parent in [current.parent, current.parent.parent, current.parent.parent.parent, Path(".")]:
+        env_file = parent / ".env"
+        if env_file.is_file():
+            try:
+                with env_file.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k, v = k.strip(), v.strip().strip("'\"")
+                            if k and k not in os.environ:
+                                os.environ[k] = v
+            except Exception:
+                pass
+            break
+
+_load_env_fallback()
 
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 DEFAULT_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0"))
@@ -80,13 +101,7 @@ def _classify_via_cnn(esp_features: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-def _classify_via_llm(esp_features: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Calls the Gemini Flash API to classify IPsec operating mode and inner traffic type.
-
-    Expects GEMINI_API_KEY (or AI_API_KEY fallback) in the environment.
-    Returns a standardized dictionary.
-    """
+def _classify_via_llm_request(esp_features: Dict[str, Any]) -> Dict[str, Any]:
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY")
     if not api_key:
         raise ValueError(
@@ -177,45 +192,13 @@ Classify this session and return STRICT JSON ONLY (no markdown formatting, no ex
     }
 
 
-def classify_traffic(esp_features: Dict[str, Any]) -> Dict[str, Any]:
+def _classify_via_llm(esp_features: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Public entry point for data-plane classification.
-
-    Dispatches to either the LLM stand-in or the CNN backend depending on the
-    CLASSIFIER_BACKEND configuration (default: "llm").
-
-    Returns a standardized dictionary:
-    {
-        "mode": str ("tunnel"|"transport"|"unknown"),
-        "mode_confidence": float (0.0 - 1.0),
-        "traffic_type": str ("https"|"voip"|"icmp"|"unknown"),
-        "traffic_confidence": float (0.0 - 1.0),
-        "backend": str ("llm"|"cnn"),
-        "error": str (optional, present on failure)
-    }
+    Calls the Gemini Flash API to classify IPsec operating mode and inner traffic type.
+    Catches all network and parsing errors, returning a guaranteed safe dictionary shape.
     """
-    backend = os.getenv("CLASSIFIER_BACKEND", BACKEND_LLM).lower().strip()
-
-    if backend == BACKEND_CNN:
-        try:
-            res = _classify_via_cnn(esp_features)
-            res["backend"] = BACKEND_CNN
-            return res
-        except NotImplementedError as e:
-            raise e
-        except Exception as e:
-            return {
-                "mode": "unknown",
-                "mode_confidence": 0.0,
-                "traffic_type": "unknown",
-                "traffic_confidence": 0.0,
-                "backend": BACKEND_CNN,
-                "error": str(e),
-            }
-
-    # Default: LLM backend
     try:
-        return _classify_via_llm(esp_features)
+        return _classify_via_llm_request(esp_features)
     except urllib.error.HTTPError as e:
         error_msg = f"Gemini API HTTP error {e.code}: {e.reason}"
         return {
@@ -263,3 +246,43 @@ def classify_traffic(esp_features: Dict[str, Any]) -> Dict[str, Any]:
             "backend": BACKEND_LLM,
             "error": str(e),
         }
+
+
+def classify_traffic(esp_features: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Public entry point for data-plane classification.
+
+    Dispatches to either the LLM stand-in or the CNN backend depending on the
+    CLASSIFIER_BACKEND configuration (default: "llm").
+
+    Returns a standardized dictionary:
+    {
+        "mode": str ("tunnel"|"transport"|"unknown"),
+        "mode_confidence": float (0.0 - 1.0),
+        "traffic_type": str ("https"|"voip"|"icmp"|"unknown"),
+        "traffic_confidence": float (0.0 - 1.0),
+        "backend": str ("llm"|"cnn"),
+        "error": str (optional, present on failure)
+    }
+    """
+    backend = os.getenv("CLASSIFIER_BACKEND", BACKEND_LLM).lower().strip()
+
+    if backend == BACKEND_CNN:
+        try:
+            res = _classify_via_cnn(esp_features)
+            res["backend"] = BACKEND_CNN
+            return res
+        except NotImplementedError as e:
+            raise e
+        except Exception as e:
+            return {
+                "mode": "unknown",
+                "mode_confidence": 0.0,
+                "traffic_type": "unknown",
+                "traffic_confidence": 0.0,
+                "backend": BACKEND_CNN,
+                "error": str(e),
+            }
+
+    # Default: LLM backend
+    return _classify_via_llm(esp_features)

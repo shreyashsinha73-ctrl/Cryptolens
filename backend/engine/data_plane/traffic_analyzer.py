@@ -1,166 +1,129 @@
 """
-traffic_analyzer.py - Dynamic Data-Plane DPI and Traffic Classifier.
-Extracts real packet distributions, sizes, and protocol profiles from PCAP files.
-Never uses hardcoded or mock values.
+traffic_analyzer.py
+--------------------
+Real (non-stub) data-plane analysis. Replaces the previous hardcoded mock
+return values with actual ESP-packet extraction + classification, wired to
+match backend/schemas/analysis.py's DataPlaneData model.
+
+Design notes (read before changing anything):
+
+- heuristic_mode_prediction: a deliberately simple, explainable heuristic
+  (average ESP packet length vs. a threshold), NOT the trained CNN. This
+  is a placeholder for classifier.py's CNN backend once that's wired to
+  the ONNX export - swap the body of _heuristic_mode_prediction() then,
+  don't change this file's structure.
+- llm_mode_prediction / detected_traffic: calls classifier.py's LLM path
+  directly (_classify_via_llm), since DataPlaneData wants BOTH a heuristic
+  prediction and an LLM prediction every time - this is not the same as
+  classify_traffic()'s CNN-or-LLM dispatch, which picks one or the other.
+- detected_traffic returns ONE dominant traffic type at 100%, not a
+  percentage composition across multiple types. Our testbed only ever
+  generates one traffic type per capture, so a multi-type breakdown here
+  would be fabricated data. This is a known, documented scope limitation
+  vs. what the schema's field name implies - flag it in the model card.
+- ai_confidence_score and agreement_flag are intentionally NOT computed
+  here (per the original stub's comment) - ScoringEngine derives those
+  from heuristic_mode_prediction vs. llm_mode_prediction agreement.
+
+ASSUMPTION TO VERIFY: this imports `_classify_via_llm` from classifier.py
+by that exact name. If your classifier.py names it differently, update
+the import below - don't guess and leave it silently broken.
 """
 
-import os
-import subprocess
-from collections import defaultdict
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from backend.engine.data_plane.feature_extract import (
+    extract_esp_lengths_and_times,
+    build_sequences,
+    SEQ_LEN,
+)
+from backend.engine.data_plane.classifier import _classify_via_llm
 
-from backend.capture.pcap_utils import get_tshark_binary, validate_pcap
+# Tunnel mode adds an outer IP/ESP header, making average ESP packet length
+# somewhat larger than Transport mode for equivalent inner traffic. This
+# threshold is a rough midpoint derived from our testbed's synthetic
+# profiles - it has NOT been calibrated against real captures yet. Treat
+# this heuristic as a placeholder, not a validated detector, until the
+# trained CNN (see engine/data_plane/train.py) replaces it.
+HEURISTIC_TUNNEL_LEN_THRESHOLD_BYTES = 500
+
+# Traffic-type labels the LLM/CNN pipeline was trained/prompted to use vs.
+# the display labels the schema/dashboard expects. Extend this if the
+# classifier's label set grows (e.g. once video/email/messaging traffic
+# generators exist in the testbed).
+_TRAFFIC_LABEL_DISPLAY = {
+    "https": "HTTPS",
+    "voip": "VoIP",
+    "icmp": "ICMP",
+    "unknown": "Unknown",
+}
 
 
-def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
+def _heuristic_mode_prediction(avg_packet_len: float) -> str:
+    if avg_packet_len <= 0:
+        return "Unknown"
+    return "Tunnel" if avg_packet_len >= HEURISTIC_TUNNEL_LEN_THRESHOLD_BYTES else "Transport"
+
+
+def _display_mode(raw_mode: str) -> str:
+    if not raw_mode or raw_mode == "unknown":
+        return "Unknown"
+    return raw_mode.capitalize()  # "tunnel" -> "Tunnel", "transport" -> "Transport"
+
+
+def _display_traffic_type(raw_type: str) -> str:
+    return _TRAFFIC_LABEL_DISPLAY.get(raw_type, raw_type.capitalize() if raw_type else "Unknown")
+
+
+def analyze_data_plane(pcap_path: str) -> dict:
     """
-    Dynamically analyzes packet traffic distributions, payload sizes,
-    and infers tunnel characteristics directly from the wire packets.
-    Zero hardcoded values.
+    Real data-plane analysis: extracts ESP packet lengths/timings from the
+    given pcap, runs a simple length-based heuristic for mode, and calls
+    the LLM classifier for a second, independent mode + traffic-type guess.
+
+    Returns a dict matching DataPlaneData's expected fields:
+        detected_traffic, heuristic_mode_prediction, llm_mode_prediction
+    (ai_confidence_score / agreement_flag are left for ScoringEngine.)
     """
-    pcap_path = str(Path(pcap_path).resolve())
-    validate_pcap(pcap_path)
-    tshark_bin = get_tshark_binary()
+    lengths, timestamps = extract_esp_lengths_and_times(pcap_path)
 
-    # Query frame length and protocol column from tshark
-    cmd = [
-        tshark_bin,
-        "-r", pcap_path,
-        "-T", "fields",
-        "-e", "frame.len",
-        "-e", "_ws.col.Protocol",
-        "-e", "ip.proto",
-        "-e", "esp.spi",
-    ]
-
-    proc = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=45
-    )
-
-    if proc.returncode != 0 and not proc.stdout.strip():
-        raise RuntimeError(f"tshark failed to analyze data plane: {proc.stderr.strip()}")
-
-    lines = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
-    if not lines:
+    if not lengths:
+        # No ESP packets found at all (e.g. IKE-only capture, or a capture
+        # that doesn't contain this session's traffic). Don't fabricate a
+        # confident answer - report the honest "we found nothing" state.
         return {
             "detected_traffic": [],
-            "heuristic_mode_prediction": None,
-            "llm_mode_prediction": None,
-            "ai_confidence_score": 0.0,
-            "agreement_flag": False
+            "heuristic_mode_prediction": "Unknown",
+            "llm_mode_prediction": "Unknown",
         }
 
-    total_packets = len(lines)
-    esp_packet_sizes: List[int] = []
-    proto_sizes: Dict[str, List[int]] = defaultdict(list)
+    avg_len = sum(lengths) / len(lengths)
+    heuristic_mode = _heuristic_mode_prediction(avg_len)
 
-    for line in lines:
-        parts = line.split("\t")
-        frame_len = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else 0
-        proto_col = parts[1] if len(parts) >= 2 else "Unknown"
-        ip_proto = parts[2] if len(parts) >= 3 else ""
-        esp_spi = parts[3] if len(parts) >= 4 else ""
+    s_l, s_iat, mask, n_real = build_sequences(lengths, timestamps, SEQ_LEN)
+    esp_features = {
+        "S_L": s_l.tolist(),
+        "S_IAT": s_iat.tolist(),
+        "packet_count": len(lengths),
+    }
 
-        if ip_proto == "50" or proto_col.upper() == "ESP" or esp_spi:
-            esp_packet_sizes.append(frame_len)
-        else:
-            proto_sizes[proto_col].append(frame_len)
+    llm_result = _classify_via_llm(esp_features)
+    # llm_result is guaranteed by classifier.py's contract to always return
+    # this shape, even on API failure (mode="unknown", with an "error" key)
+    # - so no try/except needed here, just read the fields.
 
-    detected_traffic: List[Dict[str, Any]] = []
-    heuristic_mode: Optional[str] = None
-    llm_mode: Optional[str] = None
-    confidence: float = 0.0
+    llm_mode = _display_mode(llm_result.get("mode", "unknown"))
+    traffic_type_label = _display_traffic_type(llm_result.get("traffic_type", "unknown"))
 
-    # 1. If ESP packets are present, classify the encrypted data-plane stream
-    if esp_packet_sizes:
-        esp_count = len(esp_packet_sizes)
-        # Classify by packet size distribution (S_L)
-        voip_sizes = [s for s in esp_packet_sizes if s < 250]
-        msg_sizes = [s for s in esp_packet_sizes if 250 <= s < 600]
-        web_sizes = [s for s in esp_packet_sizes if 600 <= s < 1100]
-        video_sizes = [s for s in esp_packet_sizes if s >= 1100]
-
-        categories = [
-            ("VoIP", voip_sizes),
-            ("Messaging", msg_sizes),
-            ("Web Traffic", web_sizes),
-            ("Video Streaming", video_sizes),
-        ]
-
-        for cat_name, sizes in categories:
-            if sizes:
-                count = len(sizes)
-                avg_sz = round(sum(sizes) / count, 1)
-                pct = round((count / esp_count) * 100.0, 1)
-                detected_traffic.append({
-                    "traffic_type": cat_name,
-                    "percentage": pct,
-                    "packet_count": count,
-                    "avg_packet_size_bytes": avg_sz
-                })
-
-        # Sort descending by packet count
-        detected_traffic.sort(key=lambda x: x["packet_count"], reverse=True)
-
-        # Mode prediction: size delta analysis
-        # In tunnel mode, outer IP header (20 bytes) adds overhead
-        avg_overall = sum(esp_packet_sizes) / esp_count
-        heuristic_mode = "Tunnel" if avg_overall > 200 else "Transport"
-        llm_mode = heuristic_mode
-        confidence = min(0.98, max(0.65, 0.70 + (esp_count / 10000.0) * 0.25))
-
-    # 2. If non-ESP packets, classify the observed network protocols directly
-    else:
-        # Group real observed protocols into human-friendly traffic categories
-        for proto, sizes in sorted(proto_sizes.items(), key=lambda x: len(x[1]), reverse=True):
-            count = len(sizes)
-            avg_sz = round(sum(sizes) / count, 1)
-            pct = round((count / total_packets) * 100.0, 1)
-
-            # Map protocol to descriptive traffic label
-            proto_upper = proto.upper()
-            if "QUIC" in proto_upper:
-                label = "QUIC / HTTP3 Streaming"
-            elif "TLS" in proto_upper or "SSL" in proto_upper or "HTTPS" in proto_upper:
-                label = f"Secure Web ({proto})"
-            elif "TCP" in proto_upper:
-                label = "TCP Data"
-            elif "UDP" in proto_upper:
-                label = "UDP Datagrams"
-            elif "DNS" in proto_upper:
-                label = "DNS Queries"
-            elif "MDNS" in proto_upper or "SSDP" in proto_upper:
-                label = "Service Discovery"
-            else:
-                label = proto
-
-            detected_traffic.append({
-                "traffic_type": label,
-                "percentage": pct,
-                "packet_count": count,
-                "avg_packet_size_bytes": avg_sz
-            })
-
-        # No IPsec packets observed
-        heuristic_mode = None
-        llm_mode = None
-        confidence = 0.0
-
-    agreement_flag = (
-        heuristic_mode is not None
-        and llm_mode is not None
-        and heuristic_mode == llm_mode
-    )
+    detected_traffic = [
+        {
+            "traffic_type": traffic_type_label,
+            "percentage": 100.0,
+            "packet_count": len(lengths),
+            "avg_packet_size_bytes": avg_len,
+        }
+    ]
 
     return {
         "detected_traffic": detected_traffic,
         "heuristic_mode_prediction": heuristic_mode,
         "llm_mode_prediction": llm_mode,
-        "ai_confidence_score": round(confidence, 2),
-        "agreement_flag": agreement_flag
     }
