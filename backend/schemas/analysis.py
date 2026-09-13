@@ -54,7 +54,7 @@ class ScoreBreakdown(BaseModel):
     mode: ScoreCategory
 
 class ThreatItem(BaseModel):
-    id: str
+    finding_id: str
     severity: str
     category: str
     title: str

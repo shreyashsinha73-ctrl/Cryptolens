@@ -11,11 +11,16 @@
   },
   "data_plane": {
     "detected_traffic": [
-      {"traffic_type": "VoIP", "percentage": 45.2, "packet_count": 1240, "avg_packet_size_bytes": 160},
-      {"traffic_type": "Video Streaming", "percentage": 38.8, "packet_count": 890, "avg_packet_size_bytes": 1380},
-      {"traffic_type": "Messaging", "percentage": 16.0, "packet_count": 210, "avg_packet_size_bytes": 85}
+      {
+      "traffic_type": "VoIP",
+      "percentage": 72.4,
+      "packet_count": 1240,
+      "avg_packet_size_bytes": 160
+      }
     ],
     "heuristic_mode_prediction": "Tunnel",
-    "llm_mode_prediction": "Tunnel"
+    "llm_mode_prediction": "Tunnel",
+    "ai_confidence_score": 0.94,
+    "agreement_flag": true
   }
 }
