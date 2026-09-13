@@ -1,45 +1,64 @@
 from fastapi import APIRouter, Response, HTTPException, status
 from backend.schemas.analysis import ErrorResponse
+from engine.control_plane.service import get_job_result
+from backend.services.pdf_generator import generate_pdf_report
 
 router = APIRouter()
 
 @router.get(
     "/report/{job_id}/pdf",
-    responses={404: {"model": ErrorResponse}}
+    responses={
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        500: {"model": ErrorResponse}
+    }
 )
 async def download_pdf(job_id: str, type: str = "executive"):
-    if job_id == "invalid_job":
+    """
+    Dynamically generates and downloads an Executive or Technical PDF assessment report
+    based on the real parsed cryptographic and traffic results of job_id.
+    """
+    # 1. Fetch real processed job record
+    job_data = get_job_result(job_id)
+    if not job_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={"error_code": "JOB_NOT_FOUND", "message": f"Job ID '{job_id}' was not found."}
+            detail={
+                "error_code": "JOB_NOT_FOUND",
+                "message": f"Job ID '{job_id}' does not exist or has not finished processing yet."
+            }
         )
 
-    # A pre-compiled raw binary PDF payload that loads in 0 milliseconds
-    instant_pdf_bytes = (
-        b"%PDF-1.4\n"
-        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
-        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
-        b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<\n"
-        b"/Font<</F1 4 0 R>>\n"
-        b">>/Contents 5 0 R>>endobj\n"
-        b"4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n"
-        b"5 0 obj<</Length 75>>stream\n"
-        b"BT\n/F1 18 Tf\n50 700 Td (IPsec VPN Security Assessment Report) Tj\n"
-        b"/F1 12 Tf\n50 660 Td (Job ID: " + job_id.encode() + b") Tj\n"
-        b"/F1 12 Tf\n50 640 Td (Risk Score: 78/100 (HIGH RISK)) Tj\n"
-        b"ET\nendstream\nendobj\n"
-        b"xref\n0 6\n0000000000 65535 f \n"
-        b"0000000009 00000 n \n"
-        b"0000000058 00000 n \n"
-        b"0000000115 00000 n \n"
-        b"0000000228 00000 n \n"
-        b"0000000285 00000 n \n"
-        b"trailer<</Size 6/Root 1 0 R>>\n"
-        b"startxref\n412\n%%EOF"
-    )
+    # 2. Check if the job errored out
+    if job_data.get("status") == "error":
+        error_msg = job_data.get("error_message", "Unknown pipeline error.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "JOB_FAILED",
+                "message": f"Cannot generate report for failed job: {error_msg}"
+            }
+        )
+
+    # 3. Generate high-fidelity PDF report
+    try:
+        pdf_bytes = generate_pdf_report(job_data, report_type=type)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "PDF_GENERATION_FAILED",
+                "message": f"Failed to render PDF report: {str(e)}"
+            }
+        )
+
+    clean_type = "executive" if type.lower() == "executive" else "technical"
+    filename = f"Security_Report_{job_id}_{clean_type}.pdf"
 
     return Response(
-        content=instant_pdf_bytes,
+        content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename=Security_Report_{job_id}_{type}.pdf"}
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
     )

@@ -54,10 +54,26 @@ async def analyze_pcap(file: UploadFile = File(...)):
   finally:
     await file.close()
 
-  # 4. Return matching Pydantic contract
+  # 4. Trigger Control-Plane pipeline (Deterministic Demux + AST + Rules)
+  try:
+    from engine.control_plane.service import run_control_plane_pipeline
+    run_control_plane_pipeline(str(file_path), job_id)
+  except Exception as e:
+    # Do not silently swallow pipeline failures: report verbose error
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={
+            "error_code": "PIPELINE_EXECUTION_FAILED",
+            "message": f"Control-plane analysis pipeline failed on '{file.filename}': {str(e)}"
+        }
+    )
+
+
+  # 5. Return matching Pydantic contract
   return UploadResponse(
       job_id=job_id,
       status="processing",
       filename=file.filename,
       uploaded_at=datetime.now(timezone.utc).isoformat(),
   )
+
