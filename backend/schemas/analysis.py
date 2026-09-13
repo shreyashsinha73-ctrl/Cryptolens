@@ -53,6 +53,39 @@ class ScoreBreakdown(BaseModel):
     ike_version: ScoreCategory
     mode: ScoreCategory
 
+class ComplianceCounts(BaseModel):
+    aligned: int = Field(..., ge=0, alias="ALIGNED")
+    review: int = Field(..., ge=0,alias="REVIEW")
+    fail: int = Field(..., ge=0,alias= "FAIL")
+    not_assessed: int = Field(..., ge=0, alias= "NOT_ASSESSED")
+
+
+class ComplianceControl(BaseModel):
+    control: str
+    status: str
+    observed_value: Optional[Any] = None
+    description: str
+    reason: Optional[str] = None
+    standard: str
+    mapping_version: str
+
+
+class StandardComplianceResult(BaseModel):
+    standard: str
+    title: str
+    authority: str
+    reference: str
+    assessment_type: str
+    mapping_version: str
+    overall_status: str
+    counts: ComplianceCounts
+    controls: List[ComplianceControl]
+
+
+class ComplianceResult(BaseModel):
+    mapping_version: str
+    standards: dict[str, StandardComplianceResult]
+
 class ThreatItem(BaseModel):
     finding_id: str
     severity: str
@@ -86,6 +119,8 @@ class AnalysisResultResponse(BaseModel):
     score_breakdown: Optional[ScoreBreakdown] = None
 
     threat_matrix: List[ThreatItem] = Field(default_factory=list)
+
+    compliance: Optional[ComplianceResult] = None
 
 class AnalysisFailureResponse(BaseModel):
     job_id: str

@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status, Backgrou
 from backend.schemas.analysis import ErrorResponse, UploadResponse, AnalysisResultResponse
 from backend.scoring.scoring_engine import ScoringEngine
 from backend.services.result_store import ResultStore
+from backend.scoring.compliance_engine import ComplianceEngine
 
 router = APIRouter()
 
@@ -19,6 +20,7 @@ from backend.services.analyzer_provider import AnalyzerProvider
 # 2. Instantiate the engines globally for the route
 scorer = ScoringEngine()
 provider = AnalyzerProvider()
+compliance_engine = ComplianceEngine()
 result_store = ResultStore()
 
 async def process_pcap_pipeline(job_id: str, file_path: Path):
@@ -26,6 +28,7 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
         analysis_input = provider.get_analysis(str(file_path))
 
         evaluation = scorer.evaluate(analysis_input)
+        compliance_result = compliance_engine.evaluate(analysis_input)
 
         processed_packets = sum(
             item.get("packet_count", 0)
@@ -48,6 +51,7 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
             "data_plane": analysis_input["data_plane"],
             "score_breakdown": evaluation["score_breakdown"],
             "threat_matrix": evaluation["findings"],
+            "compliance": compliance_result,
         }
 
         result_store.save(job_id, result_payload)

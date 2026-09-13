@@ -38,7 +38,13 @@ class ScoringEngine:
             return 0.0
 
         rule_set = self.rules.get(category, {})
-        rule = rule_set.get(str(value))
+
+        rule = None
+
+        for configured_value, configured_rule in rule_set.items():
+            if str(configured_value).lower() == str(value).lower():
+                rule = configured_rule
+                break
 
         # Evidence exists, but the value is not in the compliance map
         if not rule:

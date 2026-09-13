@@ -1,0 +1,179 @@
+version: "1.0"
+
+# it  maps observed IPsec parameters to assessment references.
+# "ALIGNED" -the observed value is consistent with the selected
+# assessment criterion.
+# "REVIEW" - the value may be acceptable depending on deployment,
+# policy, or applicable capability package.
+# "FAIL" - the value conflicts with the selected criterion.
+#
+
+
+standards:
+
+  NIST_SP_800_77_R1:
+    title: "NIST SP 800-77 Rev. 1"
+    authority: "NIST"
+    reference: "NIST SP 800-77 Rev. 1"
+    assessment_type: "guidance_alignment"
+
+    controls:
+
+      ike_version:
+        description: "IKE version used for IPsec Security Association establishment."
+        values:
+          IKEv2:
+            status: ALIGNED
+          IKEv1:
+            status: REVIEW
+
+      encryption:
+        description: "Observed IPsec confidentiality algorithm."
+        values:
+          AES-256-GCM:
+            status: ALIGNED
+          AES-128-GCM:
+            status: REVIEW
+          AES-256-CBC:
+            status: REVIEW
+          AES-128-CBC:
+            status: REVIEW
+          3DES:
+            status: REVIEW
+
+      integrity:
+        description: "Observed integrity/authenticated-encryption mechanism."
+        values:
+          AEAD:
+            status: ALIGNED
+          HMAC-SHA256:
+            status: ALIGNED
+          HMAC-SHA384:
+            status: ALIGNED
+          HMAC-SHA512:
+            status: ALIGNED
+          HMAC-SHA1:
+            status: REVIEW
+          NONE:
+            status: REVIEW
+
+      key_exchange:
+        description: "Observed IKE Diffie-Hellman group."
+        values:
+          14:
+            status: REVIEW
+          19:
+            status: ALIGNED
+          20:
+            status: ALIGNED
+          21:
+            status: REVIEW
+
+      pfs:
+        description: "Whether Perfect Forward Secrecy is configured for the applicable child SAs."
+        values:
+          true:
+            status: ALIGNED
+          false:
+            status: REVIEW
+
+      replay_protection:
+        description: "Whether IPsec replay protection is enabled."
+        values:
+          true:
+            status: ALIGNED
+          false:
+            status: REVIEW
+
+      operating_mode:
+        description: "IPsec operating mode."
+        values:
+          Tunnel:
+            status: ALIGNED
+          Transport:
+            status: REVIEW
+
+
+  CNSA_2_0:
+    title: "Commercial National Security Algorithm Suite 2.0"
+    authority: "NSA"
+    reference: "Applicable NSA/CSfC capability-package requirements"
+    assessment_type: "package_scoped"
+
+    controls:
+
+      encryption:
+        description: "CNSA 2.0 confidentiality algorithm assessment."
+        values:
+          AES-256-GCM:
+            status: ALIGNED
+          AES-128-GCM:
+            status: REVIEW
+          AES-256-CBC:
+            status: REVIEW
+          AES-128-CBC:
+            status: REVIEW
+          3DES:
+            status: FAIL
+
+      integrity:
+        description: "CNSA 2.0 integrity/hash assessment where applicable."
+        values:
+          HMAC-SHA384:
+            status: ALIGNED
+          HMAC-SHA512:
+            status: ALIGNED
+          HMAC-SHA256:
+            status: REVIEW
+          HMAC-SHA1:
+            status: FAIL
+          AEAD:
+            status: REVIEW
+          NONE:
+            status: FAIL
+
+      key_exchange:
+        description: "CNSA/CSfC key-establishment assessment. Applicability is package-specific."
+        values:
+          20:
+            status: ALIGNED
+          14:
+            status: REVIEW
+          19:
+            status: REVIEW
+          21:
+            status: REVIEW
+          2:
+            status: FAIL
+
+      ike_version:
+        description: "IKE version assessment for the applicable IPsec profile."
+        values:
+          IKEv2:
+            status: ALIGNED
+          IKEv1:
+            status: FAIL
+
+      pfs:
+        description: "Forward-secrecy assessment where required by the applicable profile."
+        values:
+          true:
+            status: ALIGNED
+          false:
+            status: REVIEW
+
+      replay_protection:
+        description: "Replay-protection assessment."
+        values:
+          true:
+            status: ALIGNED
+          false:
+            status: REVIEW
+
+      operating_mode:
+        description: "Mode suitability is deployment/package dependent."
+        values:
+          Tunnel:
+            status: REVIEW
+          Transport:
+            status: REVIEW
