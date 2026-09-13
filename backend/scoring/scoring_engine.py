@@ -33,7 +33,10 @@ class ScoringEngine:
                     f"No reliable evidence was available to determine "
                     f"the {category.replace('_', ' ')}. "
                     "No security weakness is assumed."
-                )
+                ),
+                "category": category.replace("_", " ").title(),
+                "observed_value": None,
+                "source": "compliance_map.yaml"
             })
             return 0.0
 
@@ -105,18 +108,20 @@ class ScoringEngine:
 
         return self._evaluate_param("integrity", integrity,findings)
 
-    
-
     def evaluate_key_exchange(self, control_plane,findings):
         return self._evaluate_param('key_exchange', control_plane.get('dh_group'),findings)
 
     def evaluate_pfs(self, control_plane,findings):
-        val = str(control_plane.get('pfs_enabled')).lower()
-        return self._evaluate_param('pfs', val,findings)
+        val = control_plane.get('pfs_enabled')
+        if val is not None:
+            val = str(val).lower()
+        return self._evaluate_param('pfs', val, findings)
 
     def evaluate_replay_protection(self, control_plane,findings):
-        val = str(control_plane.get('replay_protection_enabled')).lower()
-        return self._evaluate_param('replay_protection', val,findings)
+        val = control_plane.get('replay_protection_enabled')
+        if val is not None:
+            val = str(val).lower()
+        return self._evaluate_param('replay_protection', val, findings)
 
     def evaluate_key_lifetime(self, control_plane, findings):
         lifetime = control_plane.get("key_lifetime_seconds")
@@ -128,7 +133,10 @@ class ScoringEngine:
                 "severity": "INFO",
                 "finding_id": "UNKNOWN_KEY_LIFETIME",
                 "title": "Key Lifetime Could Not Be Assessed",
-                "description": "The key lifetime or assessment threshold is unavailable."
+                "description": "The key lifetime or assessment threshold is unavailable.",
+                "category": "Key Lifetime",
+                "observed_value": lifetime,
+                "source": "compliance_map.yaml"
             })
             return 0.0
 
