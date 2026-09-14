@@ -29,7 +29,15 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv
+.venv/
 venv/
 *.pcap_demux/
 *_demux/
-test.pcapng
+
+# Temporary / Generated runtime artifacts
+backend/uploads/
+backend/stored_results/
+backend/generated_reports/
+*.pcap
+*.pcapng
+*.pdf
