@@ -137,9 +137,9 @@ You are given numerical metadata extracted from encrypted IPsec ESP (protocol 50
 
 Structural domain rules:
 1. IPsec Operating Mode:
-   - "tunnel": Encapsulates inner IP header + payload; packets are typically ~20-40 bytes larger than transport mode.
-   - "transport": Only payload is encrypted, no outer IP encapsulation offset.
-   - "unknown": If uncertain or insufficient data.
+   - "transport": Host-to-host direct session (no outer IP encapsulation). Typically observed with dedicated endpoint streams, VoIP (small uniform packets ~150-300 bytes with ~20ms cadence), and diagnostic flows where average packet length is under 400 bytes.
+   - "tunnel": Gateway-to-gateway network encapsulation (adds outer IP + ESP overhead). Standard for encapsulated corporate/web sessions, mixed workloads, and larger variable-length packets (average length >= 500 bytes).
+   - "unknown": If uncertain or contradictory data.
 2. Inner Traffic Type:
    - "https": Bursty, variable larger packet lengths (~500-1500 bytes).
    - "voip": Small, near-constant packet lengths (~150-300 bytes) with regular, low-jitter intervals (~20ms).
