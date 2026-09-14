@@ -45,20 +45,35 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
             )
         )
 
+        security_score = evaluation["score"]
+
+        if security_score is None:
+            risk_level = "NOT_ASSESSED"
+        else:
+            risk_level = evaluation["risk_level"]
+
         result_payload = {
             "job_id": job_id,
             "status": "completed",
             "summary": {
-                "overall_risk_score": 100 - evaluation["score"],
-                "risk_level": evaluation["risk_level"],
+                "overall_security_score": security_score,
+                "risk_level": risk_level,
                 "ai_confidence_score": evaluation["ai_confidence_score"],
                 "agreement_flag": evaluation["agreement_flag"],
                 "processed_packets": processed_packets,
             },
             "control_plane": analysis_input.get("control_plane"),
+
             "data_plane": analysis_input.get("data_plane"),
-            "score_breakdown": evaluation["score_breakdown"],
-            "threat_matrix": evaluation["findings"],
+
+            "score_breakdown": evaluation.get(
+                "score_breakdown", {}
+            ),
+
+            "threat_matrix": evaluation.get(
+                "findings", []
+            ),
+
             "compliance": compliance_result,
         }
 

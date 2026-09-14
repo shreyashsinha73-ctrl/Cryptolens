@@ -1,0 +1,8 @@
+{
+  "job_id": "job_be84e02f",
+  "status": "failed",
+  "error": {
+    "error_code": "ANALYSIS_FAILED",
+    "message": "tshark binary not found on the system. Please ensure wireshark/tshark is installed."
+  }
+}

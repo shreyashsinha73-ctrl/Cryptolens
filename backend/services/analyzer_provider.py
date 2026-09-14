@@ -6,7 +6,8 @@ from typing import Any, Dict, Optional
 
 from backend.engine.control_plane.ike_parser import IkeParser
 from backend.engine.data_plane.traffic_analyzer import analyze_data_plane
-from backend.schemas.analysis import ControlPlaneData
+from backend.schemas.analysis import ControlPlaneData, DataPlaneData
+
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -93,7 +94,8 @@ class AnalyzerProvider:
             ).model_dump()
 
         # Part 3 intentionally remains unchanged for now.
-        data_plane = analyze_data_plane(pcap_path)
+        data_plane_raw = analyze_data_plane(pcap_path)
+        data_plane = DataPlaneData(**data_plane_raw).model_dump()
 
         return {
             "control_plane": control_plane,

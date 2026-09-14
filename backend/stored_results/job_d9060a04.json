@@ -1,0 +1,359 @@
+{
+  "job_id": "job_d9060a04",
+  "status": "completed",
+  "summary": {
+    "overall_risk_score": 100.0,
+    "risk_level": "CRITICAL",
+    "ai_confidence_score": 0.0,
+    "agreement_flag": false,
+    "processed_packets": 4980
+  },
+  "control_plane": null,
+  "data_plane": {
+    "detected_traffic": [
+      {
+        "traffic_type": "0x7f28",
+        "percentage": 31.1,
+        "packet_count": 1548,
+        "avg_packet_size_bytes": 368.8
+      },
+      {
+        "traffic_type": "0x382e",
+        "percentage": 28.9,
+        "packet_count": 1440,
+        "avg_packet_size_bytes": 304.6
+      },
+      {
+        "traffic_type": "TCP Data",
+        "percentage": 17.2,
+        "packet_count": 856,
+        "avg_packet_size_bytes": 95.2
+      },
+      {
+        "traffic_type": "QUIC / HTTP3 Streaming",
+        "percentage": 11.5,
+        "packet_count": 572,
+        "avg_packet_size_bytes": 451.8
+      },
+      {
+        "traffic_type": "UDP Datagrams",
+        "percentage": 4.7,
+        "packet_count": 232,
+        "avg_packet_size_bytes": 276.5
+      },
+      {
+        "traffic_type": "Secure Web (TLSv1.2)",
+        "percentage": 3.8,
+        "packet_count": 190,
+        "avg_packet_size_bytes": 830.2
+      },
+      {
+        "traffic_type": "Secure Web (SSL)",
+        "percentage": 1.2,
+        "packet_count": 58,
+        "avg_packet_size_bytes": 1095.5
+      },
+      {
+        "traffic_type": "DNS Queries",
+        "percentage": 0.7,
+        "packet_count": 36,
+        "avg_packet_size_bytes": 113.8
+      },
+      {
+        "traffic_type": "ICMP",
+        "percentage": 0.6,
+        "packet_count": 32,
+        "avg_packet_size_bytes": 74.0
+      },
+      {
+        "traffic_type": "Secure Web (TLSv1)",
+        "percentage": 0.2,
+        "packet_count": 8,
+        "avg_packet_size_bytes": 571.0
+      },
+      {
+        "traffic_type": "NTP",
+        "percentage": 0.2,
+        "packet_count": 8,
+        "avg_packet_size_bytes": 90.0
+      }
+    ],
+    "heuristic_mode_prediction": null,
+    "llm_mode_prediction": null,
+    "ai_confidence_score": 0.0,
+    "agreement_flag": false
+  },
+  "score_breakdown": {
+    "encryption": {
+      "score": 0.0,
+      "max_score": 25
+    },
+    "integrity": {
+      "score": 0.0,
+      "max_score": 15
+    },
+    "key_exchange": {
+      "score": 0.0,
+      "max_score": 15
+    },
+    "pfs": {
+      "score": 0.0,
+      "max_score": 10
+    },
+    "replay_protection": {
+      "score": 0.0,
+      "max_score": 10
+    },
+    "key_lifetime": {
+      "score": 0.0,
+      "max_score": 10
+    },
+    "ike_version": {
+      "score": 0.0,
+      "max_score": 10
+    },
+    "mode": {
+      "score": 0.0,
+      "max_score": 5
+    }
+  },
+  "threat_matrix": [
+    {
+      "severity": "INFO",
+      "finding_id": "NOT_OBSERVED_ENCRYPTION",
+      "title": "Encryption Not Observed",
+      "description": "No reliable evidence was available to determine the encryption. No security weakness is assumed.",
+      "category": "Encryption",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    },
+    {
+      "severity": "INFO",
+      "finding_id": "NOT_OBSERVED_INTEGRITY",
+      "title": "Integrity Not Observed",
+      "description": "No reliable evidence was available to determine the integrity. No security weakness is assumed.",
+      "category": "Integrity",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    },
+    {
+      "severity": "INFO",
+      "finding_id": "NOT_OBSERVED_KEY_EXCHANGE",
+      "title": "Key Exchange Not Observed",
+      "description": "No reliable evidence was available to determine the key exchange. No security weakness is assumed.",
+      "category": "Key Exchange",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    },
+    {
+      "severity": "INFO",
+      "finding_id": "NOT_OBSERVED_PFS",
+      "title": "Pfs Not Observed",
+      "description": "No reliable evidence was available to determine the pfs. No security weakness is assumed.",
+      "category": "Pfs",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    },
+    {
+      "severity": "INFO",
+      "finding_id": "NOT_OBSERVED_REPLAY_PROTECTION",
+      "title": "Replay Protection Not Observed",
+      "description": "No reliable evidence was available to determine the replay protection. No security weakness is assumed.",
+      "category": "Replay Protection",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    },
+    {
+      "severity": "INFO",
+      "finding_id": "UNKNOWN_KEY_LIFETIME",
+      "title": "Key Lifetime Could Not Be Assessed",
+      "description": "The key lifetime or assessment threshold is unavailable.",
+      "category": "Key Lifetime",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    },
+    {
+      "severity": "INFO",
+      "finding_id": "NOT_OBSERVED_IKE_VERSION",
+      "title": "Ike Version Not Observed",
+      "description": "No reliable evidence was available to determine the ike version. No security weakness is assumed.",
+      "category": "Ike Version",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    },
+    {
+      "severity": "INFO",
+      "finding_id": "NOT_OBSERVED_MODE",
+      "title": "Mode Not Observed",
+      "description": "No reliable evidence was available to determine the mode. No security weakness is assumed.",
+      "category": "Mode",
+      "observed_value": null,
+      "source": "compliance_map.yaml"
+    }
+  ],
+  "compliance": {
+    "mapping_version": "1.0",
+    "standards": {
+      "NIST_SP_800_77_R1": {
+        "standard": "NIST_SP_800_77_R1",
+        "title": "NIST SP 800-77 Rev. 1",
+        "authority": "NIST",
+        "reference": "NIST SP 800-77 Rev. 1",
+        "assessment_type": "guidance_alignment",
+        "mapping_version": "1.0",
+        "overall_status": "NOT_ASSESSED",
+        "counts": {
+          "ALIGNED": 0,
+          "REVIEW": 0,
+          "FAIL": 0,
+          "NOT_ASSESSED": 7
+        },
+        "controls": [
+          {
+            "control": "ike_version",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "IKE version used for IPsec Security Association establishment.",
+            "reason": "Required evidence was not observed.",
+            "standard": "NIST_SP_800_77_R1",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "encryption",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Observed IPsec confidentiality algorithm.",
+            "reason": "Required evidence was not observed.",
+            "standard": "NIST_SP_800_77_R1",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "integrity",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Observed integrity/authenticated-encryption mechanism.",
+            "reason": "Required evidence was not observed.",
+            "standard": "NIST_SP_800_77_R1",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "key_exchange",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Observed IKE Diffie-Hellman group.",
+            "reason": "Required evidence was not observed.",
+            "standard": "NIST_SP_800_77_R1",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "pfs",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Whether Perfect Forward Secrecy is configured for the applicable child SAs.",
+            "reason": "Required evidence was not observed.",
+            "standard": "NIST_SP_800_77_R1",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "replay_protection",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Whether IPsec replay protection is enabled.",
+            "reason": "Required evidence was not observed.",
+            "standard": "NIST_SP_800_77_R1",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "operating_mode",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "IPsec operating mode.",
+            "reason": "Required evidence was not observed.",
+            "standard": "NIST_SP_800_77_R1",
+            "mapping_version": "1.0"
+          }
+        ]
+      },
+      "CNSA_2_0": {
+        "standard": "CNSA_2_0",
+        "title": "Commercial National Security Algorithm Suite 2.0",
+        "authority": "NSA",
+        "reference": "Applicable NSA/CSfC capability-package requirements",
+        "assessment_type": "package_scoped",
+        "mapping_version": "1.0",
+        "overall_status": "NOT_ASSESSED",
+        "counts": {
+          "ALIGNED": 0,
+          "REVIEW": 0,
+          "FAIL": 0,
+          "NOT_ASSESSED": 7
+        },
+        "controls": [
+          {
+            "control": "encryption",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "CNSA 2.0 confidentiality algorithm assessment.",
+            "reason": "Required evidence was not observed.",
+            "standard": "CNSA_2_0",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "integrity",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "CNSA 2.0 integrity/hash assessment where applicable.",
+            "reason": "Required evidence was not observed.",
+            "standard": "CNSA_2_0",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "key_exchange",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "CNSA/CSfC key-establishment assessment. Applicability is package-specific.",
+            "reason": "Required evidence was not observed.",
+            "standard": "CNSA_2_0",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "ike_version",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "IKE version assessment for the applicable IPsec profile.",
+            "reason": "Required evidence was not observed.",
+            "standard": "CNSA_2_0",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "pfs",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Forward-secrecy assessment where required by the applicable profile.",
+            "reason": "Required evidence was not observed.",
+            "standard": "CNSA_2_0",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "replay_protection",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Replay-protection assessment.",
+            "reason": "Required evidence was not observed.",
+            "standard": "CNSA_2_0",
+            "mapping_version": "1.0"
+          },
+          {
+            "control": "operating_mode",
+            "status": "NOT_ASSESSED",
+            "observed_value": null,
+            "description": "Mode suitability is deployment/package dependent.",
+            "reason": "Required evidence was not observed.",
+            "standard": "CNSA_2_0",
+            "mapping_version": "1.0"
+          }
+        ]
+      }
+    }
+  }
+}

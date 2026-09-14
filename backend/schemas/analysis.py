@@ -94,7 +94,11 @@ class ThreatItem(BaseModel):
     source: Optional[str] = None
 
 class SummaryData(BaseModel):
-    overall_risk_score: float = Field(..., ge=0, le=100)
+    overall_security_score: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=100.0
+    )
     risk_level: str
     ai_confidence_score: float = Field(..., ge=0.0, le=1.0)
     agreement_flag: bool
