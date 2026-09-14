@@ -48,7 +48,14 @@ def _load_env_fallback():
 
 _load_env_fallback()
 
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+# Default and fallback models verified available on Google AI Studio
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest")
+FALLBACK_MODELS = [
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+]
 DEFAULT_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0"))
 
 
@@ -62,7 +69,15 @@ def _clean_json_text(text: str) -> str:
 
 
 def _extract_sequences(esp_features: Dict[str, Any]) -> tuple[list, list, int]:
-    """Extracts lengths, inter-arrival times, and packet count from esp_features."""
+    """Extracts the observed sequence and the total ESP packet count.
+
+    ``S_L``/``S_IAT`` are fixed-width model inputs and may therefore contain
+    zero padding.  ``n_real_packets`` says how many entries in those arrays
+    are observations, while ``total_esp_packets`` is the number of ESP frames
+    in the capture.  They are deliberately kept separate: treating a
+    5-packet capture padded to 30 elements as 30 packets was corrupting the
+    metadata sent to the classifier.
+    """
     s_l = esp_features.get("S_L") or esp_features.get("lengths", [])
     s_iat = esp_features.get("S_IAT") or esp_features.get("iats", [])
 
@@ -72,19 +87,21 @@ def _extract_sequences(esp_features: Dict[str, Any]) -> tuple[list, list, int]:
     if hasattr(s_iat, "tolist"):
         s_iat = s_iat.tolist()
 
-    packet_count = (
-        esp_features.get("n_real_packets")
-        or esp_features.get("total_esp_packets")
-        or len(s_l)
-    )
+    sequence_packet_count = esp_features.get("n_real_packets")
+    total_packet_count = esp_features.get("total_esp_packets")
+
+    if not isinstance(sequence_packet_count, int) or sequence_packet_count < 0:
+        sequence_packet_count = len(s_l)
+    if not isinstance(total_packet_count, int) or total_packet_count < 0:
+        total_packet_count = sequence_packet_count
 
     # If packet_count is known and sequences are longer (e.g. zero-padded to SEQ_LEN=30),
     # truncate padding for cleaner prompt token usage
-    if isinstance(packet_count, int) and packet_count > 0:
-        s_l = s_l[:packet_count]
-        s_iat = s_iat[:packet_count]
+    if sequence_packet_count > 0:
+        s_l = s_l[:sequence_packet_count]
+        s_iat = s_iat[:sequence_packet_count]
 
-    return s_l, s_iat, int(packet_count)
+    return s_l, s_iat, int(total_packet_count)
 
 
 def _classify_via_cnn(esp_features: Dict[str, Any]) -> Dict[str, Any]:
@@ -137,11 +154,6 @@ Classify this session and return STRICT JSON ONLY (no markdown formatting, no ex
   "traffic_confidence": <float between 0.0 and 1.0>
 }}"""
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{DEFAULT_MODEL}:generateContent?key={api_key}"
-    )
-
     request_payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -150,15 +162,37 @@ Classify this session and return STRICT JSON ONLY (no markdown formatting, no ex
         },
     }
 
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(request_payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    models_to_try = [DEFAULT_MODEL]
+    for m in FALLBACK_MODELS:
+        if m not in models_to_try:
+            models_to_try.append(m)
 
-    with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
-        response_body = response.read().decode("utf-8")
+    response_body = None
+    last_error = None
+
+    for model in models_to_try:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={api_key}"
+        )
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+                response_body = response.read().decode("utf-8")
+                break
+        except urllib.error.HTTPError as e:
+            last_error = e
+            continue
+
+    if response_body is None:
+        if last_error:
+            raise last_error
+        raise RuntimeError("No available Gemini models responded successfully.")
 
     parsed_response = json.loads(response_body)
     raw_text = parsed_response["candidates"][0]["content"]["parts"][0]["text"]
@@ -200,52 +234,30 @@ def _classify_via_llm(esp_features: Dict[str, Any]) -> Dict[str, Any]:
     try:
         return _classify_via_llm_request(esp_features)
     except urllib.error.HTTPError as e:
-        error_msg = f"Gemini API HTTP error {e.code}: {e.reason}"
-        return {
-            "mode": "unknown",
-            "mode_confidence": 0.0,
-            "traffic_type": "unknown",
-            "traffic_confidence": 0.0,
-            "backend": BACKEND_LLM,
-            "error": error_msg,
-        }
+        # Include the provider's response body: "Not Found" alone does not
+        # identify whether a model name, endpoint, or API version is wrong.
+        try:
+            provider_detail = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            provider_detail = ""
+        error_msg = f"Gemini API HTTP error {e.code}: {provider_detail or e.reason}"
     except urllib.error.URLError as e:
         error_msg = f"Network connection error: {e.reason}"
-        return {
-            "mode": "unknown",
-            "mode_confidence": 0.0,
-            "traffic_type": "unknown",
-            "traffic_confidence": 0.0,
-            "backend": BACKEND_LLM,
-            "error": error_msg,
-        }
     except TimeoutError:
-        return {
-            "mode": "unknown",
-            "mode_confidence": 0.0,
-            "traffic_type": "unknown",
-            "traffic_confidence": 0.0,
-            "backend": BACKEND_LLM,
-            "error": "Gemini API request timed out",
-        }
+        error_msg = "Gemini API request timed out"
     except json.JSONDecodeError as e:
-        return {
-            "mode": "unknown",
-            "mode_confidence": 0.0,
-            "traffic_type": "unknown",
-            "traffic_confidence": 0.0,
-            "backend": BACKEND_LLM,
-            "error": f"Malformed JSON from LLM: {e}",
-        }
+        error_msg = f"Malformed JSON from LLM: {e}"
     except Exception as e:
-        return {
-            "mode": "unknown",
-            "mode_confidence": 0.0,
-            "traffic_type": "unknown",
-            "traffic_confidence": 0.0,
-            "backend": BACKEND_LLM,
-            "error": str(e),
-        }
+        error_msg = str(e)
+
+    return {
+        "mode": "unknown",
+        "mode_confidence": 0.0,
+        "traffic_type": "unknown",
+        "traffic_confidence": 0.0,
+        "backend": BACKEND_LLM,
+        "error": error_msg,
+    }
 
 
 def classify_traffic(esp_features: Dict[str, Any]) -> Dict[str, Any]:

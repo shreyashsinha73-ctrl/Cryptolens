@@ -102,7 +102,11 @@ def analyze_data_plane(pcap_path: str) -> dict:
     esp_features = {
         "S_L": s_l.tolist(),
         "S_IAT": s_iat.tolist(),
-        "packet_count": len(lengths),
+        # Do not use a generic ``packet_count`` key here.  The classifier
+        # needs both values to distinguish real observations from SEQ_LEN
+        # padding, and to report the complete capture size accurately.
+        "n_real_packets": n_real,
+        "total_esp_packets": len(lengths),
     }
 
     llm_result = _classify_via_llm(esp_features)
@@ -122,8 +126,16 @@ def analyze_data_plane(pcap_path: str) -> dict:
         }
     ]
 
+    agreement_flag = bool(
+        heuristic_mode != "Unknown"
+        and llm_mode != "Unknown"
+        and heuristic_mode == llm_mode
+    )
+
     return {
         "detected_traffic": detected_traffic,
         "heuristic_mode_prediction": heuristic_mode,
         "llm_mode_prediction": llm_mode,
+        "ai_confidence_score": llm_result.get("mode_confidence", 0.0),
+        "agreement_flag": agreement_flag,
     }
