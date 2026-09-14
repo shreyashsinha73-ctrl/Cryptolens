@@ -37,7 +37,7 @@ const PerTunnelBreakdown = ({ tunnels = [] }) => {
                   <td className="px-6 py-4 font-mono text-xs text-slate-300 font-medium">{tunnel.id}</td>
                   <td className="px-6 py-4">{statusPill}</td>
                   <td className="px-6 py-4 font-mono text-xs text-blue-300">{tunnel.encryption}</td>
-                  <td className="px-6 py-4 font-mono text-xs text-purple-300">MODP_{tunnel.dh_group}</td>
+                  <td className="px-6 py-4 font-mono text-xs text-purple-300">{typeof tunnel.dh_group === 'number' ? `Group ${tunnel.dh_group}` : tunnel.dh_group}</td>
                   <td className="px-6 py-4 font-mono text-xs">
                     <span className={`${tunnel.pfs_enabled ? 'text-emerald-400' : 'text-rose-400'}`}>
                       {tunnel.pfs_enabled ? 'Enabled' : 'Disabled'}

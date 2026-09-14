@@ -31,7 +31,7 @@ def generate_pcaps(output_dir: str = "."):
         transport_mode=False,# Tunnel mode
         is_replayed=False    # Replay protection clean
     )
-    pcap1 = out_path / "ipsec_secure_aes256gcm_group19.pcapng"
+    pcap1 = out_path / "ipsec_secure_aes256gcm_group19.pcap"
     wrpcap(str(pcap1), modern_pkts)
     print(f"[+] Generated Modern Secure IPsec Capture : {pcap1}")
 
@@ -45,7 +45,7 @@ def generate_pcaps(output_dir: str = "."):
         transport_mode=True, # Transport mode
         is_replayed=True     # Replay attack injected
     )
-    pcap2 = out_path / "ipsec_legacy_aes128cbc_group2.pcapng"
+    pcap2 = out_path / "ipsec_legacy_aes128cbc_group2.pcap"
     wrpcap(str(pcap2), legacy_pkts)
     print(f"[+] Generated Legacy Weak IPsec Capture   : {pcap2}")
 

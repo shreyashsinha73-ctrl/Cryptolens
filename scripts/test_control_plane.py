@@ -16,6 +16,7 @@ import shutil
 import struct
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Add project root to sys.path
@@ -36,7 +37,9 @@ def build_ikev2_packet(
     dh_group: int = 19,          # 19 = 256-bit ECP, 14 = 2048 MODP, 2 = 1024 MODP
     pfs_enabled: bool = True,
     transport_mode: bool = False,
-    is_replayed: bool = False
+    is_replayed: bool = False,
+    esp_packet_lengths: list[int] | None = None,
+    esp_intervals: list[float] | None = None,
 ) -> bytes:
     """
     Constructs real binary IKEv2 packets and ESP packets conforming to RFC 7296 and RFC 4303.
@@ -113,12 +116,32 @@ def build_ikev2_packet(
     # 3. ESP Data Packets (IP Proto 50)
     # ESP Header: SPI (4B), Sequence Number (4B), Payload Data
     seq_list = [1, 2, 3, 4, 2] if is_replayed else [1, 2, 3, 4, 5]
-    for seq in seq_list:
+    # The original fixture emitted 92-byte packets for *both* modes, so its
+    # data-plane result could not possibly agree with its control-plane mode.
+    # These are complete outer IPv4 packet lengths (including the IPv4 and
+    # ESP headers) as measured by feature_extract.py.
+    if esp_packet_lengths is None:
+        esp_packet_lengths = [1420, 1390, 1420, 680, 1410] if not transport_mode else [220, 216, 224, 218, 222]
+    if len(esp_packet_lengths) != len(seq_list):
+        raise ValueError("esp_packet_lengths must contain one value per ESP sequence number")
+    if esp_intervals is None:
+        esp_intervals = [0.020] * (len(seq_list) - 1)
+    if len(esp_intervals) != len(seq_list) - 1:
+        raise ValueError("esp_intervals must contain len(sequence_numbers) - 1 values")
+
+    capture_time = time.time()
+    for index, (seq, packet_length) in enumerate(zip(seq_list, esp_packet_lengths)):
+        if packet_length < 28:  # IPv4 header (20) + ESP SPI/sequence (8)
+            raise ValueError("ESP packet length must be at least 28 bytes")
         esp_header = struct.pack("!II", 0xCAFEBABE, seq)
-        esp_payload = esp_header + b"\xDE\xAD\xBE\xEF" * 16
+        encrypted_bytes = packet_length - 28
+        esp_payload = esp_header + (b"\xDE\xAD\xBE\xEF" * ((encrypted_bytes + 3) // 4))[:encrypted_bytes]
         esp_pkt = Ether(src="00:11:22:33:44:55", dst="00:aa:bb:cc:dd:ee") / \
                   IP(src="192.168.10.1", dst="192.168.10.2", proto=50) / \
                   Raw(load=esp_payload)
+        if index:
+            capture_time += esp_intervals[index - 1]
+        esp_pkt.time = capture_time
         packets.append(esp_pkt)
 
     return packets

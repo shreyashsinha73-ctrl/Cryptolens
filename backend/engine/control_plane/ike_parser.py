@@ -6,6 +6,7 @@ operating mode, PFS, replay protection, and key lifetime without hardcoding.
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+import struct
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from backend.capture.pcap_utils import run_tshark_json, validate_pcap
@@ -123,7 +124,14 @@ class IkeDeterministicParser:
 
         # Query packets for IKE/ISAKMP and ESP
         display_filter = "ike || isakmp || esp || udp.port == 500 || udp.port == 4500"
-        packets_ast = run_tshark_json(pcap_path, display_filter=display_filter)
+        try:
+            packets_ast = run_tshark_json(pcap_path, display_filter=display_filter)
+        except FileNotFoundError:
+            # A PCAP upload should still be analyzable on deployments where
+            # Wireshark is not installed.  The fallback deliberately reads
+            # only cleartext IKE headers/payload metadata and ESP sequence
+            # numbers; it never attempts ESP decryption.
+            return self._parse_pcap_with_scapy(pcap_path)
 
         result = IkeParseResult()
         if not packets_ast:
@@ -221,6 +229,117 @@ class IkeDeterministicParser:
             pass
 
         return result
+
+    def _parse_pcap_with_scapy(self, pcap_path: str) -> IkeParseResult:
+        """Minimal local IKEv2/ESP parser used only when tshark is unavailable."""
+        try:
+            from scapy.all import IP, UDP, PcapReader
+        except ImportError:
+            return IkeParseResult()
+
+        result = IkeParseResult()
+        child_sa_seen = False
+        child_sa_has_ke = False
+        transport_notify_seen = False
+        esp_sequences: List[int] = []
+
+        with PcapReader(pcap_path) as reader:
+            for frame_number, packet in enumerate(reader, start=1):
+                if IP in packet and packet[IP].proto == 50:
+                    esp_bytes = bytes(packet[IP].payload)
+                    if len(esp_bytes) >= 8:
+                        esp_sequences.append(struct.unpack("!I", esp_bytes[4:8])[0])
+
+                if UDP not in packet or (packet[UDP].sport not in (500, 4500) and packet[UDP].dport not in (500, 4500)):
+                    continue
+                ike = bytes(packet[UDP].payload)
+                # IKE header: two SPIs, next-payload, version, exchange,
+                # flags, message ID, length.
+                if len(ike) < 28 or ike[17] >> 4 not in (1, 2):
+                    continue
+
+                result.ike_version = f"IKEv{ike[17] >> 4}"
+                result.initiator_spi = ike[0:8].hex()
+                responder_spi = ike[8:16].hex()
+                if responder_spi != "0000000000000000":
+                    result.responder_spi = responder_spi
+                exchange_type = ike[18]
+                if exchange_type == EXCHANGE_CREATE_CHILD_SA:
+                    child_sa_seen = True
+
+                payload_type = ike[16]
+                offset = 28
+                while payload_type and offset + 4 <= len(ike):
+                    next_type, _reserved, payload_length = struct.unpack("!BBH", ike[offset:offset + 4])
+                    if payload_length < 4 or offset + payload_length > len(ike):
+                        break
+                    payload = ike[offset:offset + payload_length]
+
+                    if payload_type == 33:  # Security Association
+                        self._parse_scapy_sa(payload, frame_number, result)
+                    elif payload_type == 34 and len(payload) >= 8:  # KE
+                        dh_group = struct.unpack("!H", payload[4:6])[0]
+                        if result.dh_group is None:
+                            result.dh_group = dh_group
+                        if exchange_type == EXCHANGE_CREATE_CHILD_SA:
+                            child_sa_has_ke = True
+                    elif payload_type == 41 and len(payload) >= 8:  # Notify
+                        notify_type = struct.unpack("!H", payload[6:8])[0]
+                        if notify_type == NOTIFY_USE_TRANSPORT_MODE:
+                            transport_notify_seen = True
+
+                    payload_type = next_type
+                    offset += payload_length
+
+        if result.ike_version:
+            result.operating_mode = "Transport" if transport_notify_seen else "Tunnel"
+        if child_sa_seen:
+            result.pfs_enabled = child_sa_has_ke
+        if esp_sequences:
+            result.replay_protection_enabled = len(esp_sequences) == len(set(esp_sequences))
+        return result
+
+    def _parse_scapy_sa(self, payload: bytes, frame_number: int, result: IkeParseResult) -> None:
+        """Extract proposal transforms from an IKEv2 SA payload's wire bytes."""
+        offset = 4  # skip generic payload header
+        while offset + 8 <= len(payload):
+            next_proposal, _reserved, proposal_length, _number, _protocol, spi_size, _transform_count = struct.unpack(
+                "!BBHBBBB", payload[offset:offset + 8]
+            )
+            if proposal_length < 8 or offset + proposal_length > len(payload):
+                break
+            transform_offset = offset + 8 + spi_size
+            proposal_end = offset + proposal_length
+            while transform_offset + 8 <= proposal_end:
+                _next_transform, _reserved, transform_length, transform_type, _reserved2, transform_id = struct.unpack(
+                    "!BBHBBH", payload[transform_offset:transform_offset + 8]
+                )
+                if transform_length < 8 or transform_offset + transform_length > proposal_end:
+                    break
+                transform = payload[transform_offset:transform_offset + transform_length]
+                if transform_type == 1 and result.encryption_algorithm is None:
+                    key_length = None
+                    attribute_offset = 8
+                    while attribute_offset + 4 <= len(transform):
+                        attribute_type, attribute_value = struct.unpack("!HH", transform[attribute_offset:attribute_offset + 4])
+                        if attribute_type == 0x800E:
+                            key_length = attribute_value
+                        attribute_offset += 4
+                    base = ENCR_ALGORITHMS.get(transform_id, f"ENCR_{transform_id}")
+                    result.encryption_algorithm = (
+                        f"AES-{key_length or 256}-GCM" if base.startswith("AES-GCM")
+                        else f"AES-{key_length or 128}-CBC" if base == "AES-CBC" else base
+                    )
+                    if base.startswith("AES-GCM"):
+                        result.integrity_algorithm = "AEAD"
+                elif transform_type == 3 and result.integrity_algorithm is None:
+                    result.integrity_algorithm = INTEG_ALGORITHMS.get(transform_id, f"INTEG_{transform_id}")
+                elif transform_type == 4 and result.dh_group is None:
+                    result.dh_group = transform_id
+                transform_offset += transform_length
+            if next_proposal == 0:
+                break
+            offset += proposal_length
 
     def _parse_ike_packet(
         self,
