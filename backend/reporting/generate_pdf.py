@@ -1,8 +1,8 @@
-
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -93,16 +93,24 @@ def _risk_level(value: Any) -> str:
 
 def _paragraph(text: Any, style: ParagraphStyle) -> Paragraph:
     """
-    Convert arbitrary values into ReportLab Paragraph-safe text.
-    ReportLab interprets angle brackets as markup, so escape them.
+    Convert arbitrary values into a safely escaped ReportLab Paragraph.
+
+    Dynamic values are escaped so that strings containing characters such as
+    <, >, and & are displayed literally rather than interpreted as markup.
     """
     value = _safe(text)
-    value = (
-        value.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-    return Paragraph(value, style)
+    return Paragraph(escape(value), style)
+
+
+def _rich_paragraph(text: Any, style: ParagraphStyle) -> Paragraph:
+    """
+    Create a ReportLab Paragraph containing controlled markup.
+
+    This helper is used only where the generator intentionally inserts
+    ReportLab markup such as <b>...</b>. Dynamic values inside the markup
+    should be escaped before being passed here.
+    """
+    return Paragraph(str(text), style)
 
 
 # ---------------------------------------------------------------------------
@@ -391,15 +399,21 @@ def _build_executive_summary(
     score = summary.get("overall_security_score")
     risk = _risk_level(summary.get("risk_level"))
 
+    score_text = escape(_format_score(score))
+    risk_text = escape(risk)
+
     story = [
-        Paragraph("1. Executive Summary", styles["section"]),
-        _paragraph(
+        Paragraph(
+            "1. Executive Summary",
+            styles["section"],
+        ),
+        _rich_paragraph(
             (
-                f"CryptoLens assessed the supplied IPsec traffic with an overall "
-                f"security score of <b>{_format_score(score)}/100</b>, classified "
-                f"as <b>{risk}</b>. The assessment combines protocol evidence, "
-                f"configured scoring rules, and the analyzer outputs available "
-                f"for this job."
+                "CryptoLens assessed the supplied IPsec traffic with an overall "
+                f"security score of <b>{score_text}/100</b>, classified "
+                f"as <b>{risk_text}</b>. The assessment combines protocol "
+                "evidence, configured scoring rules, and the analyzer outputs "
+                "available for this job."
             ),
             styles["body"],
         ),
@@ -454,8 +468,15 @@ def _build_control_plane(
     ]
 
     return [
-        Paragraph("2. Control-Plane Assessment", styles["section"]),
-        _key_value_table(rows, styles, value_width=90 * mm),
+        Paragraph(
+            "2. Control-Plane Assessment",
+            styles["section"],
+        ),
+        _key_value_table(
+            rows,
+            styles,
+            value_width=90 * mm,
+        ),
         Spacer(1, 5 * mm),
     ]
 
@@ -500,17 +521,34 @@ def _build_score_breakdown(
         data.append(
             [
                 _paragraph(label, styles["table_cell"]),
-                _paragraph(_format_score(score), styles["table_cell"]),
-                _paragraph(_format_score(maximum), styles["table_cell"]),
-                _paragraph(utilization, styles["table_cell"]),
+                _paragraph(
+                    _format_score(score),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    _format_score(maximum),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    utilization,
+                    styles["table_cell"],
+                ),
             ]
         )
 
     return [
-        Paragraph("3. Score Breakdown", styles["section"]),
+        Paragraph(
+            "3. Score Breakdown",
+            styles["section"],
+        ),
         _styled_table(
             data,
-            widths=[65 * mm, 35 * mm, 35 * mm, 35 * mm],
+            widths=[
+                65 * mm,
+                35 * mm,
+                35 * mm,
+                35 * mm,
+            ],
         ),
         Spacer(1, 5 * mm),
     ]
@@ -523,7 +561,10 @@ def _build_findings(
     findings = result.get("threat_matrix") or []
 
     story = [
-        Paragraph("4. Security Findings", styles["section"]),
+        Paragraph(
+            "4. Security Findings",
+            styles["section"],
+        ),
     ]
 
     if not findings:
@@ -569,9 +610,15 @@ def _build_findings(
     story.append(
         _styled_table(
             data,
-            widths=[35 * mm, 28 * mm, 42 * mm, 65 * mm],
+            widths=[
+                35 * mm,
+                28 * mm,
+                42 * mm,
+                65 * mm,
+            ],
         )
     )
+
     story.append(Spacer(1, 5 * mm))
 
     for index, finding in enumerate(findings, start=1):
@@ -579,23 +626,29 @@ def _build_findings(
         description = _safe(finding.get("description"))
         source = _safe(finding.get("source"))
 
+        title_escaped = escape(title)
+        description_escaped = escape(description)
+        source_escaped = escape(source)
+
         block = [
             Paragraph(
-                f"{index}. {title}",
+                f"{index}. {title_escaped}",
                 styles["finding_title"],
             ),
-            _paragraph(
-                f"<b>Description:</b> {description}",
+            _rich_paragraph(
+                f"<b>Description:</b> {description_escaped}",
                 styles["body"],
             ),
-            _paragraph(
-                f"<b>Source:</b> {source}",
+            _rich_paragraph(
+                f"<b>Source:</b> {source_escaped}",
                 styles["small"],
             ),
             Spacer(1, 2 * mm),
         ]
 
-        story.append(KeepTogether(block))
+        story.append(
+            KeepTogether(block)
+        )
 
     return story
 
@@ -607,19 +660,29 @@ def _build_traffic_analysis(
     data_plane = result.get("data_plane") or {}
     traffic = data_plane.get("detected_traffic") or []
 
+    heuristic_prediction = escape(
+        _safe(data_plane.get("heuristic_mode_prediction"))
+    )
+    ai_prediction = escape(
+        _safe(data_plane.get("llm_mode_prediction"))
+    )
+
     story = [
-        Paragraph("5. Traffic Analysis", styles["section"]),
-        _paragraph(
+        Paragraph(
+            "5. Traffic Analysis",
+            styles["section"],
+        ),
+        _rich_paragraph(
             (
-                f"<b>Heuristic prediction:</b> "
-                f"{_safe(data_plane.get('heuristic_mode_prediction'))}"
+                "<b>Heuristic prediction:</b> "
+                f"{heuristic_prediction}"
             ),
             styles["body"],
         ),
-        _paragraph(
+        _rich_paragraph(
             (
-                f"<b>AI prediction:</b> "
-                f"{_safe(data_plane.get('llm_mode_prediction'))}"
+                "<b>AI prediction:</b> "
+                f"{ai_prediction}"
             ),
             styles["body"],
         ),
@@ -636,9 +699,18 @@ def _build_traffic_analysis(
 
     data = [
         [
-            _paragraph("Traffic Type", styles["table_header"]),
-            _paragraph("Percentage", styles["table_header"]),
-            _paragraph("Packets", styles["table_header"]),
+            _paragraph(
+                "Traffic Type",
+                styles["table_header"],
+            ),
+            _paragraph(
+                "Percentage",
+                styles["table_header"],
+            ),
+            _paragraph(
+                "Packets",
+                styles["table_header"],
+            ),
             _paragraph(
                 "Avg. Packet Size (bytes)",
                 styles["table_header"],
@@ -671,46 +743,16 @@ def _build_traffic_analysis(
     story.append(
         _styled_table(
             data,
-            widths=[55 * mm, 35 * mm, 30 * mm, 50 * mm],
+            widths=[
+                55 * mm,
+                35 * mm,
+                30 * mm,
+                50 * mm,
+            ],
         )
     )
 
     return story
-
-
-def _build_technical_metadata(
-    result: Dict[str, Any],
-    styles: Dict[str, ParagraphStyle],
-):
-    summary = result.get("summary") or {}
-
-    return [
-        Paragraph("7. Assessment Metadata", styles["section"]),
-        _key_value_table(
-            [
-                ("Job ID", _safe(result.get("job_id"))),
-                ("Status", _safe(result.get("status"))),
-                (
-                    "Processed Packets",
-                    _safe(summary.get("processed_packets")),
-                ),
-                (
-                    "AI Confidence",
-                    (
-                        f"{float(summary.get('ai_confidence_score', 0)) * 100:.2f}%"
-                        if summary.get("ai_confidence_score") is not None
-                        else "N/A"
-                    ),
-                ),
-                (
-                    "Heuristic / AI Agreement",
-                    "Yes" if summary.get("agreement_flag") else "No",
-                ),
-            ],
-            styles,
-            value_width=90 * mm,
-        ),
-    ]
 
 
 def _build_compliance_section(
@@ -747,7 +789,7 @@ def _build_compliance_section(
 
         story.append(
             Paragraph(
-                title,
+                escape(str(title)),
                 styles["subsection"],
             )
         )
@@ -878,6 +920,44 @@ def _build_compliance_section(
     return story
 
 
+def _build_technical_metadata(
+    result: Dict[str, Any],
+    styles: Dict[str, ParagraphStyle],
+):
+    summary = result.get("summary") or {}
+
+    return [
+        Paragraph(
+            "7. Assessment Metadata",
+            styles["section"],
+        ),
+        _key_value_table(
+            [
+                ("Job ID", _safe(result.get("job_id"))),
+                ("Status", _safe(result.get("status"))),
+                (
+                    "Processed Packets",
+                    _safe(summary.get("processed_packets")),
+                ),
+                (
+                    "AI Confidence",
+                    (
+                        f"{float(summary.get('ai_confidence_score', 0)) * 100:.2f}%"
+                        if summary.get("ai_confidence_score") is not None
+                        else "N/A"
+                    ),
+                ),
+                (
+                    "Heuristic / AI Agreement",
+                    "Yes" if summary.get("agreement_flag") else "No",
+                ),
+            ],
+            styles,
+            value_width=90 * mm,
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Main generator
 # ---------------------------------------------------------------------------
@@ -912,10 +992,16 @@ def generate_pdf(
             f"Use one of: {', '.join(sorted(REPORT_TYPES))}."
         )
 
-    job_id = _safe(result.get("job_id"), "unknown_job")
+    job_id = _safe(
+        result.get("job_id"),
+        "unknown_job",
+    )
 
     if output_path is None:
-        DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        DEFAULT_OUTPUT_DIR.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
         output_path = (
             DEFAULT_OUTPUT_DIR
@@ -923,11 +1009,16 @@ def generate_pdf(
         )
     else:
         output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
     styles = _build_styles()
 
-    document = CryptoLensDocTemplate(output_path)
+    document = CryptoLensDocTemplate(
+        output_path
+    )
 
     story = []
 
@@ -992,5 +1083,6 @@ def generate_pdf(
 
     document.build(story)
 
-    return str(Path(output_path).resolve())
-
+    return str(
+        Path(output_path).resolve()
+    )
