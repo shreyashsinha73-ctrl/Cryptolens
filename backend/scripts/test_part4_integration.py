@@ -5,9 +5,9 @@ Integration test for Part 4: API Integration & Validation
 Tests:
 1. Schema validation (Pydantic models)
 2. GeminiClient initialization and configuration
-3. Inference pipeline with mock data
-4. Traffic analyzer integration
-5. Agreement checking logic
+3. Agreement checking logic
+4. Gemini JSON response parsing
+5. Validation metrics structure
 """
 
 import json
@@ -66,7 +66,7 @@ def test_schema_validation():
     response = LLMInferenceResponse(
         mode=mode_result,
         traffic=traffic_result,
-        model_version="gemini-1.5-flash",
+        model_version=GeminiClientConfig().model,
     )
     assert response.mode.predicted_mode == "tunnel"
     assert response.traffic.predicted_traffic_type == "https"

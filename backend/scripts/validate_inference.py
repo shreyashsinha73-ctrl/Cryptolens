@@ -24,10 +24,9 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.engine.data_plane.feature_extract import (
-    extract_esp_lengths_and_times,
     parse_label_from_filename,
 )
-from backend.engine.inference_pipeline import infer_mode_and_traffic, validate_and_merge
+
 from backend.engine.data_plane.traffic_analyzer import analyze_data_plane
 
 logging.basicConfig(
@@ -98,12 +97,7 @@ def validate_dataset(dataset_dir: Path, verbose: bool = False) -> Dict[str, Any]
             if verbose:
                 logger.info(f"Validating {pcap_path.name} (GT: {gt_mode}/{gt_traffic})")
 
-            # Run inference pipeline
-            api_response = infer_mode_and_traffic(
-                packet_lengths=[],  # Will fetch from PCAP
-                inter_arrival_times=[],  # Will fetch from PCAP
-                packet_count=0,  # Will fetch from PCAP
-            )
+            
 
             # Alternative: Use traffic_analyzer which handles extraction
             data_plane_result = analyze_data_plane(str(pcap_path))
