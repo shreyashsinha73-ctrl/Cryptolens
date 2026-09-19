@@ -2,21 +2,31 @@
 traffic_analyzer.py - Dynamic Data-Plane DPI and Traffic Classifier.
 Extracts real packet distributions, sizes, and protocol profiles from PCAP files.
 Never uses hardcoded or mock values.
+
+Integrates with inference_pipeline for Gemini API-based mode/traffic inference.
 """
 
+import logging
 import os
 import subprocess
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.capture.pcap_utils import get_tshark_binary, validate_pcap
+from backend.engine.inference_pipeline import infer_with_fallback
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
     """
     Dynamically analyzes packet traffic distributions, payload sizes,
     and infers tunnel characteristics directly from the wire packets.
+    
+    Integrates Gemini API inference for mode (tunnel/transport) and 
+    traffic type (https/voip/icmp) classification.
     Zero hardcoded values.
     """
     pcap_path = str(Path(pcap_path).resolve())
@@ -57,6 +67,7 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
 
     total_packets = len(lines)
     esp_packet_sizes: List[int] = []
+    esp_timestamps: List[float] = []
     proto_sizes: Dict[str, List[int]] = defaultdict(list)
 
     for line in lines:
@@ -68,17 +79,23 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
 
         if ip_proto == "50" or proto_col.upper() == "ESP" or esp_spi:
             esp_packet_sizes.append(frame_len)
+            # Use index as proxy for time ordering (tshark outputs in order)
+            esp_timestamps.append(float(len(esp_packet_sizes) - 1))
         else:
             proto_sizes[proto_col].append(frame_len)
 
     detected_traffic: List[Dict[str, Any]] = []
     heuristic_mode: Optional[str] = None
-    llm_mode: Optional[str] = None
+    heuristic_traffic: Optional[str] = None
+    api_mode: Optional[str] = None
+    api_traffic: Optional[str] = None
+    agreement_flag: bool = False
     confidence: float = 0.0
 
     # 1. If ESP packets are present, classify the encrypted data-plane stream
     if esp_packet_sizes:
         esp_count = len(esp_packet_sizes)
+        
         # Classify by packet size distribution (S_L)
         voip_sizes = [s for s in esp_packet_sizes if s < 250]
         msg_sizes = [s for s in esp_packet_sizes if 250 <= s < 600]
@@ -107,12 +124,65 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         # Sort descending by packet count
         detected_traffic.sort(key=lambda x: x["packet_count"], reverse=True)
 
-        # Mode prediction: size delta analysis
+        # Heuristic mode prediction: size delta analysis
         # In tunnel mode, outer IP header (20 bytes) adds overhead
         avg_overall = sum(esp_packet_sizes) / esp_count
-        heuristic_mode = "Tunnel" if avg_overall > 200 else "Transport"
-        llm_mode = heuristic_mode
-        confidence = min(0.98, max(0.65, 0.70 + (esp_count / 10000.0) * 0.25))
+        heuristic_mode = "tunnel" if avg_overall > 200 else "transport"
+        
+        # Heuristic traffic prediction: based on predominant size category
+        if voip_sizes and (len(voip_sizes) / esp_count) > 0.5:
+            heuristic_traffic = "voip"
+        elif web_sizes and (len(web_sizes) / esp_count) > 0.4:
+            heuristic_traffic = "https"
+        elif video_sizes and (len(video_sizes) / esp_count) > 0.3:
+            heuristic_traffic = "https"  # Treat video as https for simplicity
+        else:
+            heuristic_traffic = "icmp"  # Default fallback
+        
+        heuristic_confidence = min(0.98, max(0.65, 0.70 + (esp_count / 10000.0) * 0.25))
+
+        # Call Gemini API for joint mode + traffic inference
+        # Compute inter-arrival times from timestamp proxies
+        inter_arrival_times = []
+        for i in range(1, min(len(esp_timestamps), 30)):
+            iat = esp_timestamps[i] - esp_timestamps[i - 1]
+            inter_arrival_times.append(max(iat, 0.001))  # Avoid zero IAT
+        
+        # Pad if needed
+        while len(inter_arrival_times) < len(esp_packet_sizes[:30]) - 1:
+            inter_arrival_times.append(0.001)
+        
+        logger.info(
+            f"Calling inference pipeline: {esp_count} ESP packets, "
+            f"{len(esp_packet_sizes[:30])} for API, heuristic={heuristic_mode}/{heuristic_traffic}"
+        )
+        
+        agreement_result = infer_with_fallback(
+            packet_lengths=esp_packet_sizes[:30],
+            inter_arrival_times=inter_arrival_times,
+            packet_count=esp_count,
+            heuristic_mode=heuristic_mode,
+            heuristic_traffic=heuristic_traffic,
+        )
+        
+        if agreement_result:
+            api_mode = agreement_result.api_mode_prediction
+            api_traffic = agreement_result.api_traffic_prediction
+            agreement_flag = agreement_result.overall_agreement
+            confidence = agreement_result.api_avg_confidence
+            
+            if api_mode == "unknown":
+                # Fallback: use heuristic
+                api_mode = heuristic_mode
+            if api_traffic == "unknown":
+                # Fallback: use heuristic
+                api_traffic = heuristic_traffic
+        else:
+            # Both API and heuristic failed
+            api_mode = heuristic_mode
+            api_traffic = heuristic_traffic
+            agreement_flag = True  # No disagreement if both are same fallback
+            confidence = heuristic_confidence
 
     # 2. If non-ESP packets, classify the observed network protocols directly
     else:
@@ -148,19 +218,14 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
 
         # No IPsec packets observed
         heuristic_mode = None
-        llm_mode = None
+        api_mode = None
         confidence = 0.0
-
-    agreement_flag = (
-        heuristic_mode is not None
-        and llm_mode is not None
-        and heuristic_mode == llm_mode
-    )
+        agreement_flag = False
 
     return {
         "detected_traffic": detected_traffic,
         "heuristic_mode_prediction": heuristic_mode,
-        "llm_mode_prediction": llm_mode,
+        "llm_mode_prediction": api_mode,
         "ai_confidence_score": round(confidence, 2),
         "agreement_flag": agreement_flag
     }

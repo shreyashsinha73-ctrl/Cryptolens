@@ -41,3 +41,7 @@ backend/generated_reports/
 *.pcap
 *.pcapng
 *.pdf
+
+PART4_*.md
+
+CryptoLens_SIH_2026_Pitch_v3.md
