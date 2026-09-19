@@ -76,7 +76,7 @@ class LLMInferenceResponse(BaseModel):
         description="Traffic type prediction.",
     )
     model_version: str = Field(
-        default="gemini-1.5-flash",
+        default="gemini-3.1-flash-lite",
         description="Model used for inference.",
     )
     raw_response: Optional[str] = Field(

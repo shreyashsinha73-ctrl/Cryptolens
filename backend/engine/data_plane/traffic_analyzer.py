@@ -42,6 +42,7 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         "-e", "_ws.col.Protocol",
         "-e", "ip.proto",
         "-e", "esp.spi",
+        "-e", "frame.time_epoch",
     ]
 
     proc = subprocess.run(
@@ -76,11 +77,15 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         proto_col = parts[1] if len(parts) >= 2 else "Unknown"
         ip_proto = parts[2] if len(parts) >= 3 else ""
         esp_spi = parts[3] if len(parts) >= 4 else ""
+        timestamp_raw = parts[4] if len(parts) >= 5 else ""
 
         if ip_proto == "50" or proto_col.upper() == "ESP" or esp_spi:
             esp_packet_sizes.append(frame_len)
-            # Use index as proxy for time ordering (tshark outputs in order)
-            esp_timestamps.append(float(len(esp_packet_sizes) - 1))
+
+            try:
+                esp_timestamps.append(float(timestamp_raw))
+            except (ValueError, TypeError):
+                esp_timestamps.append(float("nan"))
         else:
             proto_sizes[proto_col].append(frame_len)
 
@@ -142,15 +147,24 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         heuristic_confidence = min(0.98, max(0.65, 0.70 + (esp_count / 10000.0) * 0.25))
 
         # Call Gemini API for joint mode + traffic inference
-        # Compute inter-arrival times from timestamp proxies
+        # Compute inter-arrival times from packet timestamps
         inter_arrival_times = []
-        for i in range(1, min(len(esp_timestamps), 30)):
-            iat = esp_timestamps[i] - esp_timestamps[i - 1]
-            inter_arrival_times.append(max(iat, 0.001))  # Avoid zero IAT
-        
-        # Pad if needed
-        while len(inter_arrival_times) < len(esp_packet_sizes[:30]) - 1:
-            inter_arrival_times.append(0.001)
+
+        valid_timestamps = [
+            ts for ts in esp_timestamps
+            if ts == ts
+        ]
+
+        for i in range(1, min(len(valid_timestamps), 30)):
+            iat = (
+                valid_timestamps[i]
+                - valid_timestamps[i - 1]
+            )
+            inter_arrival_times.append(
+                max(iat, 0.000001)
+            )
+        if not inter_arrival_times: #atleast 1 iat to receive
+            inter_arrival_times = [0.000001]
         
         logger.info(
             f"Calling inference pipeline: {esp_count} ESP packets, "
@@ -173,16 +187,16 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
             
             if api_mode == "unknown":
                 # Fallback: use heuristic
-                api_mode = heuristic_mode
+                api_mode = None
             if api_traffic == "unknown":
                 # Fallback: use heuristic
-                api_traffic = heuristic_traffic
+                api_traffic = None
         else:
             # Both API and heuristic failed
-            api_mode = heuristic_mode
-            api_traffic = heuristic_traffic
-            agreement_flag = True  # No disagreement if both are same fallback
-            confidence = heuristic_confidence
+            api_mode = None
+            api_traffic = None
+            agreement_flag = False
+            confidence = 0.0
 
     # 2. If non-ESP packets, classify the observed network protocols directly
     else:

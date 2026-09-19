@@ -28,7 +28,7 @@ class GeminiClientConfig:
 
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY")
-        self.model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        self.model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
         self.timeout_seconds = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0"))
         self.api_url_template = (
             "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -137,41 +137,56 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
             return None
 
     def _call_gemini_api(self, prompt: str) -> Optional[str]:
-        """
-        Make HTTP POST to Gemini API.
-
-        Args:
-            prompt: The full prompt text to send.
-
-        Returns:
-            Raw text response from API, or None on failure.
-        """
-        url = self.config.api_url_template.format(model=self.config.model)
-        params = f"?key={self.config.api_key}"
-        full_url = url + params
-
-        request_body = json.dumps({"contents": [{"parts": [{"text": prompt}]}]}).encode(
-            "utf-8"
+        url = self.config.api_url_template.format(
+            model=self.config.model
         )
+
+        request_body = json.dumps({
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt
+                        }
+                    ]
+                }
+            ]
+        }).encode("utf-8")
 
         try:
             req = urllib.request.Request(
-                full_url,
+                url,
                 data=request_body,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": self.config.api_key,
+                },
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=self.config.timeout_seconds) as response:
+
+            with urllib.request.urlopen(
+                req,
+                timeout=self.config.timeout_seconds
+            ) as response:
                 body = response.read().decode("utf-8")
                 return self._extract_response_text(body)
+
         except urllib.error.HTTPError as e:
-            logger.error(f"Gemini API HTTP error {e.code}: {e.reason}")
+            logger.error(
+                f"Gemini API HTTP error {e.code}: {e.reason}"
+            )
             return None
+
         except urllib.error.URLError as e:
-            logger.error(f"Gemini API connection error: {e.reason}")
+            logger.error(
+                f"Gemini API connection error: {e.reason}"
+            )
             return None
+
         except Exception as e:
-            logger.error(f"Unexpected error calling Gemini API: {e}")
+            logger.error(
+                f"Unexpected error calling Gemini API: {e}"
+            )
             return None
 
     @staticmethod
