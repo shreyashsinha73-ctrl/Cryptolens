@@ -138,12 +138,12 @@ You are given numerical metadata extracted from encrypted IPsec ESP (protocol 50
 Structural domain rules:
 1. IPsec Operating Mode:
    - "transport": Host-to-host direct session (no outer IP encapsulation). Typically observed with dedicated endpoint streams, VoIP / small uniform packets (< 350 bytes).
-   - "tunnel": Gateway-to-gateway network encapsulation (adds outer IP + ESP overhead). Standard for encapsulated corporate/web sessions, mixed workloads, and larger variable-length packets (average length >= 500 bytes).
+   - "tunnel": Gateway-to-gateway network encapsulation (adds outer IP + ESP overhead). Standard for encapsulated corporate/web sessions, mixed workloads, and larger packets (average length >= 500 bytes).
    - "unknown": If uncertain or contradictory data.
 2. Inner Traffic Type:
+   - "icmp": Periodic diagnostic ping/echo packets (either standard 64-100 bytes, or uniform large packets 500-1200 bytes for MTU path discovery ping) with slow, steady 1-second intervals (>= 0.5s to 1.0s cadence).
    - "voip": Small, constant packet lengths (< 300 bytes) with rapid, periodic stream intervals (< 100ms cadence, continuous flow).
-   - "https": Bursty, variable larger packet lengths (~500-1500 bytes).
-   - "icmp": Small isolated packets (< 100 bytes) with slow, sparse, irregular intervals (>= 0.5s between requests).
+   - "https": Bursty, variable larger packet lengths (~500-1500 bytes) with tightly clustered bursts (2-10ms) and idle pauses.
    - "unknown": If uncertain or does not match profiles.
 
 Classify this session and return STRICT JSON ONLY (no markdown formatting, no explanations) with this exact schema:

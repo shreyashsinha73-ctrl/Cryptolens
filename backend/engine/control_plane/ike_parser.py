@@ -275,7 +275,7 @@ class IkeDeterministicParser:
                         break
                     payload = ike[offset:offset + payload_length]
 
-                    if payload_type == 33:  # Security Association
+                    if payload_type in (1, 33):  # Security Association (1 for IKEv1, 33 for IKEv2)
                         self._parse_scapy_sa(payload, frame_number, result)
                     elif payload_type == 34 and len(payload) >= 8:  # KE
                         dh_group = struct.unpack("!H", payload[4:6])[0]
