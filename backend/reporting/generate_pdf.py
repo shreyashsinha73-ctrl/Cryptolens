@@ -1,10 +1,11 @@
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
@@ -272,9 +273,24 @@ def _styled_table(
     if header_rows:
         style_commands.extend(
             [
-                ("BACKGROUND", (0, 0), (-1, header_rows - 1), colors.HexColor("#243447")),
-                ("TEXTCOLOR", (0, 0), (-1, header_rows - 1), colors.white),
-                ("FONTNAME", (0, 0), (-1, header_rows - 1), "Helvetica-Bold"),
+                (
+                    "BACKGROUND",
+                    (0, 0),
+                    (-1, header_rows - 1),
+                    colors.HexColor("#243447"),
+                ),
+                (
+                    "TEXTCOLOR",
+                    (0, 0),
+                    (-1, header_rows - 1),
+                    colors.white,
+                ),
+                (
+                    "FONTNAME",
+                    (0, 0),
+                    (-1, header_rows - 1),
+                    "Helvetica-Bold",
+                ),
             ]
         )
 
@@ -312,7 +328,10 @@ def _key_value_table(
 # Sections
 # ---------------------------------------------------------------------------
 
-def _build_cover(result: Dict[str, Any], styles: Dict[str, ParagraphStyle]):
+def _build_cover(
+    result: Dict[str, Any],
+    styles: Dict[str, ParagraphStyle],
+):
     summary = result.get("summary") or {}
 
     story = [
@@ -328,7 +347,10 @@ def _build_cover(result: Dict[str, Any], styles: Dict[str, ParagraphStyle]):
     cover_rows = [
         ("Job ID", _safe(result.get("job_id"))),
         ("Assessment Status", _safe(result.get("status")).upper()),
-        ("Risk Score", f"{_format_score(summary.get('overall_risk_score'))} / 100"),
+        (
+            "Risk Score",
+            f"{_format_score(summary.get('overall_security_score'))} / 100",
+        ),
         ("Risk Level", _risk_level(summary.get("risk_level"))),
         (
             "AI Confidence",
@@ -366,7 +388,7 @@ def _build_executive_summary(
     summary = result.get("summary") or {}
     findings = result.get("threat_matrix") or []
 
-    score = summary.get("overall_risk_score")
+    score = summary.get("overall_security_score")
     risk = _risk_level(summary.get("risk_level"))
 
     story = [
@@ -411,8 +433,14 @@ def _build_control_plane(
     rows = [
         ("IKE Version", _safe(control.get("ike_version"))),
         ("Operating Mode", _safe(control.get("operating_mode"))),
-        ("Encryption Algorithm", _safe(control.get("encryption_algorithm"))),
-        ("Integrity Algorithm", _safe(control.get("integrity_algorithm"))),
+        (
+            "Encryption Algorithm",
+            _safe(control.get("encryption_algorithm")),
+        ),
+        (
+            "Integrity Algorithm",
+            _safe(control.get("integrity_algorithm")),
+        ),
         ("DH Group", _safe(control.get("dh_group"))),
         ("PFS", _safe(control.get("pfs_enabled"))),
         (
@@ -519,10 +547,22 @@ def _build_findings(
     for finding in findings:
         data.append(
             [
-                _paragraph(finding.get("finding_id"), styles["table_cell"]),
-                _paragraph(finding.get("severity"), styles["table_cell"]),
-                _paragraph(finding.get("category"), styles["table_cell"]),
-                _paragraph(finding.get("observed_value"), styles["table_cell"]),
+                _paragraph(
+                    finding.get("finding_id"),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    finding.get("severity"),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    finding.get("category"),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    finding.get("observed_value"),
+                    styles["table_cell"],
+                ),
             ]
         )
 
@@ -599,14 +639,20 @@ def _build_traffic_analysis(
             _paragraph("Traffic Type", styles["table_header"]),
             _paragraph("Percentage", styles["table_header"]),
             _paragraph("Packets", styles["table_header"]),
-            _paragraph("Avg. Packet Size (bytes)", styles["table_header"]),
+            _paragraph(
+                "Avg. Packet Size (bytes)",
+                styles["table_header"],
+            ),
         ]
     ]
 
     for item in traffic:
         data.append(
             [
-                _paragraph(item.get("traffic_type"), styles["table_cell"]),
+                _paragraph(
+                    item.get("traffic_type"),
+                    styles["table_cell"],
+                ),
                 _paragraph(
                     _format_percentage(item.get("percentage")),
                     styles["table_cell"],
@@ -639,7 +685,7 @@ def _build_technical_metadata(
     summary = result.get("summary") or {}
 
     return [
-        Paragraph("6. Assessment Metadata", styles["section"]),
+        Paragraph("7. Assessment Metadata", styles["section"]),
         _key_value_table(
             [
                 ("Job ID", _safe(result.get("job_id"))),
@@ -665,6 +711,8 @@ def _build_technical_metadata(
             value_width=90 * mm,
         ),
     ]
+
+
 def _build_compliance_section(
     result: Dict[str, Any],
     styles: Dict[str, ParagraphStyle],
@@ -673,7 +721,10 @@ def _build_compliance_section(
     standards = compliance.get("standards") or {}
 
     story = [
-        Paragraph("6. Standards Compliance Assessment", styles["section"]),
+        Paragraph(
+            "6. Standards Compliance Assessment",
+            styles["section"],
+        ),
     ]
 
     if not standards:
@@ -689,28 +740,58 @@ def _build_compliance_section(
         title = standard.get("title", standard_name)
         overall_status = _safe(
             standard.get("overall_status"),
-            "NOT_ASSESSED"
+            "NOT_ASSESSED",
         )
 
         counts = standard.get("counts") or {}
 
         story.append(
-            Paragraph(title, styles["subsection"])
+            Paragraph(
+                title,
+                styles["subsection"],
+            )
         )
 
         summary_data = [
             [
-                _paragraph("Overall Status", styles["table_header"]),
-                _paragraph("Aligned", styles["table_header"]),
-                _paragraph("Review", styles["table_header"]),
-                _paragraph("Fail", styles["table_header"]),
-                _paragraph("Not Assessed", styles["table_header"]),
+                _paragraph(
+                    "Overall Status",
+                    styles["table_header"],
+                ),
+                _paragraph(
+                    "Aligned",
+                    styles["table_header"],
+                ),
+                _paragraph(
+                    "Review",
+                    styles["table_header"],
+                ),
+                _paragraph(
+                    "Fail",
+                    styles["table_header"],
+                ),
+                _paragraph(
+                    "Not Assessed",
+                    styles["table_header"],
+                ),
             ],
             [
-                _paragraph(overall_status, styles["table_cell"]),
-                _paragraph(counts.get("ALIGNED", 0), styles["table_cell"]),
-                _paragraph(counts.get("REVIEW", 0), styles["table_cell"]),
-                _paragraph(counts.get("FAIL", 0), styles["table_cell"]),
+                _paragraph(
+                    overall_status,
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    counts.get("ALIGNED", 0),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    counts.get("REVIEW", 0),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    counts.get("FAIL", 0),
+                    styles["table_cell"],
+                ),
                 _paragraph(
                     counts.get("NOT_ASSESSED", 0),
                     styles["table_cell"],
@@ -738,10 +819,22 @@ def _build_compliance_section(
         if controls:
             control_data = [
                 [
-                    _paragraph("Control", styles["table_header"]),
-                    _paragraph("Status", styles["table_header"]),
-                    _paragraph("Observed Value", styles["table_header"]),
-                    _paragraph("Assessment", styles["table_header"]),
+                    _paragraph(
+                        "Control",
+                        styles["table_header"],
+                    ),
+                    _paragraph(
+                        "Status",
+                        styles["table_header"],
+                    ),
+                    _paragraph(
+                        "Observed Value",
+                        styles["table_header"],
+                    ),
+                    _paragraph(
+                        "Assessment",
+                        styles["table_header"],
+                    ),
                 ]
             ]
 
@@ -784,6 +877,7 @@ def _build_compliance_section(
 
     return story
 
+
 # ---------------------------------------------------------------------------
 # Main generator
 # ---------------------------------------------------------------------------
@@ -794,7 +888,7 @@ def generate_pdf(
     report_type: str = "executive",
 ) -> str:
     """
-    a CryptoLens assessment PDF from a completed analysis result.
+    Generate a CryptoLens assessment PDF from a completed analysis result.
 
     Parameters
     ----------
@@ -836,18 +930,67 @@ def generate_pdf(
     document = CryptoLensDocTemplate(output_path)
 
     story = []
-    story.extend(_build_cover(result, styles))
-    story.extend(_build_executive_summary(result, styles))
-    story.extend(_build_control_plane(result, styles))
-    story.extend(_build_score_breakdown(result, styles))
-    story.extend(_build_findings(result, styles))
-    story.extend(_build_traffic_analysis(result, styles))
-    story.extend(_build_compliance_section(result, styles))
+
+    story.extend(
+        _build_cover(
+            result,
+            styles,
+        )
+    )
+
+    story.extend(
+        _build_executive_summary(
+            result,
+            styles,
+        )
+    )
+
+    story.extend(
+        _build_control_plane(
+            result,
+            styles,
+        )
+    )
+
+    story.extend(
+        _build_score_breakdown(
+            result,
+            styles,
+        )
+    )
+
+    story.extend(
+        _build_findings(
+            result,
+            styles,
+        )
+    )
+
+    story.extend(
+        _build_traffic_analysis(
+            result,
+            styles,
+        )
+    )
+
+    story.extend(
+        _build_compliance_section(
+            result,
+            styles,
+        )
+    )
 
     if report_type == "technical":
         story.append(PageBreak())
-        story.extend(_build_technical_metadata(result, styles))
+
+        story.extend(
+            _build_technical_metadata(
+                result,
+                styles,
+            )
+        )
 
     document.build(story)
 
     return str(Path(output_path).resolve())
+
