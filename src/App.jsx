@@ -10,6 +10,8 @@ import SocDesignSystemView from './components/soc/SocDesignSystemView.jsx';
 import PerTunnelBreakdown from './components/PerTunnelBreakdown.jsx';
 import ScoreDial from './components/ScoreDial.jsx';
 import AnalysisDimensions from './components/dashboard/AnalysisDimensions.jsx';
+import ComplianceRadar from './components/dashboard/ComplianceRadar.jsx';
+import TrafficDistribution from './components/dashboard/TrafficDistribution.jsx';
 
 // ── Empty state shown before any PCAP is uploaded ──────────────────────────
 const EmptyState = ({ onUploadPcap, uploading }) => {
@@ -146,6 +148,10 @@ function MainSocApp() {
       metadata_exposure:  (analysisResult.score_breakdown?.ike_version?.score ?? 0) / (analysisResult.score_breakdown?.ike_version?.max_score || 10),
       pqc_readiness:      analysisResult.control_plane?.dh_group === 19 ? 1.0 : (analysisResult.control_plane?.dh_group ? 0.0 : 0.0),
     },
+
+    traffic_distribution:
+      analysisResult.data_plane?.detected_traffic || [],
+    
     tunnels: [{
       id:             activeJobId,
       status:         analysisResult.summary?.risk_level === 'HIGH' || analysisResult.summary?.risk_level === 'CRITICAL' ? 'critical' : 'active',
@@ -266,7 +272,7 @@ function MainSocApp() {
                     <ScoreDial overall_score={data.overall_score} risk_level={data.risk_level}  nist_status={data.nist_status} />
                   </div>
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs">
-                    <AnalysisDimensions sub_scores={data.sub_scores} />
+                    <ComplianceRadar sub_scores={data.sub_scores} />
                   </div>
                 </div>
 
@@ -279,8 +285,12 @@ function MainSocApp() {
                     <SocSeverityDistribution threatMatrix={data.threat_matrix} />
                   </div>
                 </div>
+                {/* Row 4: Traffic Distribution */}
+                <div className="w-full">
+                  <TrafficDistribution traffic={data.traffic_distribution} />
+                </div>
 
-                {/* Row 4: Tunnel breakdown */}
+                {/* Row 5: Tunnel breakdown */}
                 <div className="w-full">
                   <PerTunnelBreakdown tunnels={data.tunnels} />
                 </div>
