@@ -307,17 +307,32 @@ def parse_packet_layers(
 
 
 def get_tshark_binary() -> str:
-    """Dynamically locates the tshark binary on the system."""
-    binary = shutil.which("tshark")
-    if binary:
-        return binary
+    """Dynamically locates the tshark binary on the system.
+
+    Preference order:
+    1. explicit environment override (TSHARK_PATH / WIRESHARK_TSHARK_PATH)
+    2. shell-discovered tshark executable
+    3. Linux/WSL paths
+    4. Windows-installed Wireshark paths, including WSL-mounted drives
+    """
+    override = os.environ.get("TSHARK_PATH") or os.environ.get("WIRESHARK_TSHARK_PATH")
+    if override:
+        expanded = os.path.expandvars(os.path.expanduser(override))
+        if os.path.isfile(expanded):
+            return expanded
+
+    for executable_name in ("tshark", "tshark.exe"):
+        binary = shutil.which(executable_name)
+        if binary:
+            return binary
 
     candidates = [
         "/usr/bin/tshark",
         "/usr/local/bin/tshark",
         "/bin/tshark",
-        r"C:\Program Files\Wireshark\tshark.exe",
-        r"C:\Program Files (x86)\Wireshark\tshark.exe",
+        "/usr/bin/tshark.exe",
+        "/usr/local/bin/tshark.exe",
+        "/bin/tshark.exe",
         os.path.join(
             os.path.expanduser("~"),
             "Downloads",
@@ -326,13 +341,38 @@ def get_tshark_binary() -> str:
         ),
     ]
 
+    windows_roots = [
+        os.environ.get("ProgramFiles"),
+        os.environ.get("ProgramFiles(x86)"),
+        r"C:\Program Files",
+        r"C:\Program Files (x86)",
+        "/mnt/c/Program Files",
+        "/mnt/c/Program Files (x86)",
+        "/c/Program Files",
+        "/c/Program Files (x86)",
+    ]
+
+    seen: set[str] = set()
+    for root in windows_roots:
+        if not root:
+            continue
+        for candidate in (
+            os.path.join(root, "Wireshark", "tshark.exe"),
+            os.path.join(root, "Wireshark", "tshark"),
+            os.path.join(root, "Wireshark", "tshark.exe"),
+        ):
+            candidate = os.path.normpath(candidate)
+            if candidate not in seen:
+                seen.add(candidate)
+                candidates.append(candidate)
+
     for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
 
     raise FileNotFoundError(
         "tshark binary not found on the system. "
-        "Please ensure Wireshark/TShark is installed."
+        "Please ensure Wireshark/TShark is installed or set TSHARK_PATH/WIRESHARK_TSHARK_PATH."
     )
 
 
