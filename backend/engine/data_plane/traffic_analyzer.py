@@ -32,11 +32,28 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
     pcap_path = str(Path(pcap_path).resolve())
     validate_pcap(pcap_path)
     tshark_bin = get_tshark_binary()
+    tshark_pcap_path = pcap_path
+
+    # A Windows TShark launched from WSL cannot resolve Linux mount paths
+    # such as /mnt/c/...; pass it the equivalent Windows path instead.
+    if tshark_bin.lower().endswith(".exe") and pcap_path.startswith("/"):
+        try:
+            path_result = subprocess.run(
+                ["wslpath", "-w", pcap_path],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            tshark_pcap_path = path_result.stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            # Keep the original path so native Windows/Python environments
+            # and installations without wslpath continue to work.
+            tshark_pcap_path = pcap_path
 
     # Query frame length and protocol column from tshark
     cmd = [
         tshark_bin,
-        "-r", pcap_path,
+        "-r", tshark_pcap_path,
         "-T", "fields",
         "-e", "frame.len",
         "-e", "_ws.col.Protocol",

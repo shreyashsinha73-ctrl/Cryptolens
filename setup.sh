@@ -33,11 +33,23 @@ else
 fi
 
 VENV_DIR="$PROJECT_ROOT/.venv"
-PYTHON_BIN="$VENV_DIR/bin/python"
-PIP_BIN="$VENV_DIR/bin/pip"
+PYTHON_BIN=""
+PIP_BIN=""
+
+# Python virtualenv layouts differ between Linux/WSL and Windows Git Bash.
+if [ -f "$VENV_DIR/bin/python" ]; then
+  PYTHON_BIN="$VENV_DIR/bin/python"
+  PIP_BIN="$VENV_DIR/bin/pip"
+elif [ -f "$VENV_DIR/Scripts/python.exe" ]; then
+  PYTHON_BIN="$VENV_DIR/Scripts/python.exe"
+  PIP_BIN="$VENV_DIR/Scripts/pip.exe"
+elif [ -f "$VENV_DIR/Scripts/python" ]; then
+  PYTHON_BIN="$VENV_DIR/Scripts/python"
+  PIP_BIN="$VENV_DIR/Scripts/pip"
+fi
 
 # Create virtual environment if not already present
-if [ ! -f "$PYTHON_BIN" ]; then
+if [ -z "$PYTHON_BIN" ] || [ ! -f "$PYTHON_BIN" ]; then
   echo "Creating virtual environment at .venv using $SYSTEM_PYTHON..."
   "$SYSTEM_PYTHON" -m venv "$VENV_DIR" || {
     echo "Notice: Standard venv module failed, trying system python directly."
@@ -46,14 +58,26 @@ if [ ! -f "$PYTHON_BIN" ]; then
   }
 fi
 
+# Refresh the Python helper paths after creation in case the venv layout is OS-specific.
+if [ -f "$VENV_DIR/bin/python" ]; then
+  PYTHON_BIN="$VENV_DIR/bin/python"
+  PIP_BIN="$VENV_DIR/bin/pip"
+elif [ -f "$VENV_DIR/Scripts/python.exe" ]; then
+  PYTHON_BIN="$VENV_DIR/Scripts/python.exe"
+  PIP_BIN="$VENV_DIR/Scripts/pip.exe"
+elif [ -f "$VENV_DIR/Scripts/python" ]; then
+  PYTHON_BIN="$VENV_DIR/Scripts/python"
+  PIP_BIN="$VENV_DIR/Scripts/pip"
+fi
+
 # Install/Update backend dependencies from requirements.txt
 if [ -f "$PROJECT_ROOT/requirements.txt" ]; then
   echo "Verifying / Installing Python dependencies from requirements.txt..."
-  if [ -f "$VENV_DIR/bin/pip" ]; then
-    "$VENV_DIR/bin/pip" install --quiet --upgrade pip
-    "$VENV_DIR/bin/pip" install --quiet -r "$PROJECT_ROOT/requirements.txt"
+  if [ -n "$PIP_BIN" ] && [ -f "$PIP_BIN" ]; then
+    "$PIP_BIN" install --quiet --upgrade pip
+    "$PIP_BIN" install --quiet -r "$PROJECT_ROOT/requirements.txt"
   else
-    $PIP_BIN install --quiet -r "$PROJECT_ROOT/requirements.txt"
+    eval "$PIP_BIN install --quiet -r \"$PROJECT_ROOT/requirements.txt\""
   fi
 fi
 
@@ -102,11 +126,32 @@ trap cleanup SIGINT SIGTERM EXIT
 # ------------------------------------------------------------------------------
 # 4. Launch Services
 # ------------------------------------------------------------------------------
-echo "[3/4] Launching FastAPI Backend on http://localhost:8000 ..."
-"$PYTHON_BIN" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 &
-BACKEND_PID=$!
+BACKEND_PID=""
 
-sleep 1
+if python3 - "$PROJECT_ROOT" <<'PY'
+import socket, sys
+host = '127.0.0.1'
+port = 8000
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.settimeout(0.5)
+try:
+    sock.connect((host, port))
+except OSError:
+    sys.exit(0)
+else:
+    print(f"Port {port} is already in use on {host}; reusing the existing backend instance.")
+    sys.exit(1)
+finally:
+    sock.close()
+PY
+then
+  echo "[3/4] Launching FastAPI Backend on http://localhost:8000 ..."
+  "$PYTHON_BIN" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 &
+  BACKEND_PID=$!
+  sleep 1
+else
+  echo "[3/4] Backend already running on http://localhost:8000; continuing without restarting it."
+fi
 
 echo "[4/4] Launching Vite Frontend on http://localhost:5173 ..."
 npm run dev &
@@ -122,4 +167,9 @@ echo " Press Ctrl+C at any time to stop both servers."
 echo "=================================================="
 echo ""
 
-wait $BACKEND_PID $FRONTEND_PID
+if [ -n "$BACKEND_PID" ]; then
+  wait $BACKEND_PID
+fi
+if [ -n "$FRONTEND_PID" ]; then
+  wait $FRONTEND_PID
+fi

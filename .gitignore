@@ -42,6 +42,12 @@ backend/generated_reports/
 *.pcapng
 *.pdf
 
+# Local environment overrides (keep these out of Git)
+.local.env
+.wireshark-paths.env
+.local-setup.sh
+setup-local.sh
+
 PART4_*.md
 
 CryptoLens_SIH_2026_Pitch_v3.md

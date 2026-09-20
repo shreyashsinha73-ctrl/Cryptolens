@@ -11,7 +11,8 @@ from backend.scoring.compliance_engine import ComplianceEngine
 
 router = APIRouter()
 
-UPLOAD_DIR = Path("backend/uploads")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+UPLOAD_DIR = PROJECT_ROOT / "backend" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".pcap", ".pcapng", ".cap"}
 
@@ -112,7 +113,7 @@ async def analyze_pcap(background_tasks: BackgroundTasks, file: UploadFile = Fil
 
     job_id = f"job_{uuid.uuid4().hex[:8]}"
     safe_filename = f"{job_id}{file_ext}"
-    file_path = UPLOAD_DIR / safe_filename
+    file_path = (UPLOAD_DIR / safe_filename).resolve()
 
     try:
         async with aiofiles.open(file_path, "wb") as buffer:
@@ -128,6 +129,15 @@ async def analyze_pcap(background_tasks: BackgroundTasks, file: UploadFile = Fil
         )
     finally:
         await file.close()
+
+    if not file_path.is_file() or file_path.stat().st_size == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "FILE_SAVE_FAILED",
+                "message": f"Uploaded PCAP was not written to {file_path}",
+            },
+        )
 
     # Trigger background task
     background_tasks.add_task(process_pcap_pipeline, job_id, file_path)
