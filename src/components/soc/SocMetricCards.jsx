@@ -59,6 +59,9 @@ const SocMetricCards = ({
     });
     return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
   })();
+  const highAlerts =threatMatrix.filter(t => t.severity === 'HIGH').length;
+
+  const infoAlerts =threatMatrix.filter(t => t.severity === 'INFO').length;
 
   const computedRisk = backendRiskLevel
     ? `${backendRiskLevel.toUpperCase()} RISK`
@@ -75,11 +78,11 @@ const SocMetricCards = ({
       <MetricCard
         title="Total Findings"
         value={totalAlerts}
-        subtitle={`${criticalAlerts} critical + ${mediumAlerts} medium + ${lowAlerts} low`}
+        subtitle={`${criticalAlerts} critical + ${highAlerts} high + ${mediumAlerts} medium + ${lowAlerts} low + ${infoAlerts} info`}
         subtitleColor="text-gray-500 dark:text-gray-400"
       />
       <MetricCard
-        title="Critical / High"
+        title="Critical Findings"
         value={criticalAlerts}
         subtitle={criticalAlerts > 0 ? 'Requires immediate attention' : 'No critical findings'}
         subtitleColor={criticalAlerts > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}

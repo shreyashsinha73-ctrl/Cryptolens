@@ -10,6 +10,7 @@ const COLORS = {
   HIGH:     '#F97316',
   MEDIUM:   '#EAB308',
   LOW:      '#06B6D4',
+  INFO:     '#6B7280',
 };
 
 const SocSeverityDistribution = ({ threatMatrix = [] }) => {
@@ -18,17 +19,17 @@ const SocSeverityDistribution = ({ threatMatrix = [] }) => {
 
   // Derive severity counts from real data
   const severities = useMemo(() => {
-    const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    const counts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0 };
     threatMatrix.forEach((f) => {
-      const sev = (f.severity || 'LOW').toUpperCase();
+      const sev = (f.severity || 'INFO').toUpperCase();
       if (sev in counts) counts[sev]++;
-      else counts.LOW++;
+      else counts.INFO++;
     });
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total === 0) return null;
 
     let offset = 0;
-    return ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((key) => {
+    return ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'].map((key) => {
       const pct = Math.round((counts[key] / total) * 100);
       const item = { id: key.toLowerCase(), name: key[0] + key.slice(1).toLowerCase(), value: pct, count: counts[key], color: COLORS[key], offset };
       offset += pct;
@@ -70,7 +71,7 @@ const SocSeverityDistribution = ({ threatMatrix = [] }) => {
       <div>
         <h3 className="text-sm font-bold text-gray-900 dark:text-white tracking-tight">Severity Distribution</h3>
         <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400 mt-0.5">
-          Breakdown by finding criticality
+          Breakdown by finding severity
         </p>
       </div>
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 
 /**
  * Derives bar/line data from the live threat_matrix.
- * Groups findings by category and counts critical/high/medium/low.
+ * Groups findings by category and counts all severities
  */
 const deriveChartData = (threatMatrix) => {
   if (!threatMatrix || !threatMatrix.length) return null;
@@ -11,20 +11,23 @@ const deriveChartData = (threatMatrix) => {
   const categoryMap = {};
   threatMatrix.forEach((f) => {
     const cat = (f.category || f.threat_category || 'Other').slice(0, 18);
-    if (!categoryMap[cat]) categoryMap[cat] = { critical: 0, high: 0, medium: 0, low: 0 };
-    const sev = (f.severity || 'LOW').toUpperCase();
+    if (!categoryMap[cat]) categoryMap[cat] = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    const sev = (f.severity || 'INFO').toUpperCase();
     if (sev === 'CRITICAL') categoryMap[cat].critical++;
     else if (sev === 'HIGH') categoryMap[cat].high++;
     else if (sev === 'MEDIUM') categoryMap[cat].medium++;
-    else categoryMap[cat].low++;
+    else if (sev === 'LOW') categoryMap[cat].low++;
+    else categoryMap[cat].info++;
   });
 
   const labels = Object.keys(categoryMap);
   const critical = labels.map(l => categoryMap[l].critical);
   const high     = labels.map(l => categoryMap[l].high);
   const medium   = labels.map(l => categoryMap[l].medium);
+  const low      = labels.map(l => categoryMap[l].low);
+  const info     = labels.map(l => categoryMap[l].info);
 
-  return { labels, critical, high, medium };
+  return { labels, critical, high, medium, low , info};
 };
 
 const SocAlertVolumeTrend = ({ threatMatrix = [] }) => {
@@ -59,8 +62,8 @@ const SocAlertVolumeTrend = ({ threatMatrix = [] }) => {
     );
   }
 
-  const { labels, critical, high, medium } = chartData;
-  const maxVal = Math.max(...critical, ...high, ...medium, 1);
+  const { labels, critical, high, medium, low, info } = chartData;
+  const maxVal = Math.max(...critical, ...high, ...medium, ...low, ...info, 1);
 
   const svgW = 500;
   const svgH = 180;
@@ -104,6 +107,14 @@ const SocAlertVolumeTrend = ({ threatMatrix = [] }) => {
               <span className="w-2.5 h-2.5 rounded-full bg-[#EAB308]" />
               <span className="text-gray-600 dark:text-gray-300">Medium</span>
             </div>
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#22C55E]" />
+              <span className="text-gray-600 dark:text-gray-300">Low</span>
+            </div>
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#6B7280]" />
+              <span className="text-gray-600 dark:text-gray-300">Info</span>
+            </div>
           </div>
         </div>
         <span className="text-[11px] text-gray-400 dark:text-gray-500 font-medium self-start sm:self-auto">
@@ -134,11 +145,22 @@ const SocAlertVolumeTrend = ({ threatMatrix = [] }) => {
               })}
 
               {/* Lines */}
+              <path d={toPath(low)} fill="none" stroke="#22C55E" strokeWidth="2.2" strokeLinecap="round" />
               <path d={toPath(medium)} fill="none" stroke="#EAB308" strokeWidth="2.2" strokeLinecap="round" />
               <path d={toPath(high)}   fill="none" stroke="#F97316" strokeWidth="2.2" strokeLinecap="round" />
               <path d={toPath(critical)} fill="none" stroke="#EF4444" strokeWidth="2.2" strokeLinecap="round" />
+              <path d={toPath(info)} fill="none" stroke="#6B7280" strokeWidth="2.2" strokeLinecap="round" />
 
               {/* Dots */}
+              {info.map((v, i) => (
+                <circle key={`info-${i}`} cx={xs[i]} cy={toY(v)} r={3} fill="#6B7280" />
+              ))}
+              {low.map((v, i) => (
+                <circle key={`low-${i}`} cx={xs[i]} cy={toY(v)} r={3} fill="#22C55E" />
+              ))}
+              {medium.map((v, i) => (
+                <circle key={`medium-${i}`} cx={xs[i]} cy={toY(v)} r={3} fill="#EAB308" />
+              ))}
               {critical.map((v, i) => (
                 <circle key={i} cx={xs[i]} cy={toY(v)} r={3} fill="#EF4444" />
               ))}

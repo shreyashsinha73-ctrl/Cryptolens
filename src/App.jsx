@@ -127,15 +127,18 @@ function MainSocApp() {
 
   // Derive everything strictly from live analysis — no fallbacks or dummy values
   const data = isRealData ? {
-    overall_score: Math.round(
-      analysisResult.summary?.overall_security_score ??
-      (analysisResult.summary?.overall_risk_score !== undefined ? 100 - analysisResult.summary.overall_risk_score : 0)
-    ),
+    overall_score:
+      analysisResult.summary?.overall_security_score === null
+        ? null
+        : Math.round(analysisResult.summary?.overall_security_score ?? 0),
+
     risk_level: analysisResult.summary?.risk_level || (
       analysisResult.threat_matrix?.some(f => f.severity === 'CRITICAL') ? 'CRITICAL' :
       analysisResult.threat_matrix?.some(f => f.severity === 'HIGH') ? 'HIGH' :
       analysisResult.threat_matrix?.some(f => f.severity === 'MEDIUM') ? 'MODERATE' : 'LOW'
     ),
+    nist_status:
+      analysisResult.compliance?.standards?.NIST_SP_800_77_R1?.overall_status || 'NOT_ASSESSED',
     sub_scores: {
       cipher_strength:    (analysisResult.score_breakdown?.encryption?.score ?? 0) / (analysisResult.score_breakdown?.encryption?.max_score || 25),
       key_exchange:       (analysisResult.score_breakdown?.key_exchange?.score ?? 0) / (analysisResult.score_breakdown?.key_exchange?.max_score || 15),
@@ -156,7 +159,7 @@ function MainSocApp() {
   } : null;
 
   const totalAlerts    = data?.threat_matrix?.length ?? 0;
-  const criticalAlerts = data?.threat_matrix?.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH').length ?? 0;
+  const criticalAlerts = data?.threat_matrix?.filter(f => f.severity === 'CRITICAL').length ?? 0;
   const mediumAlerts   = data?.threat_matrix?.filter(f => f.severity === 'MEDIUM').length ?? 0;
   const lowAlerts      = data?.threat_matrix?.filter(f => f.severity === 'LOW').length ?? 0;
 
@@ -260,7 +263,7 @@ function MainSocApp() {
                 {/* Row 2: Score + Dimensions */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs flex items-center justify-center">
-                    <ScoreDial overall_score={data.overall_score} risk_level={data.risk_level} />
+                    <ScoreDial overall_score={data.overall_score} risk_level={data.risk_level}  nist_status={data.nist_status} />
                   </div>
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs">
                     <AnalysisDimensions sub_scores={data.sub_scores} />

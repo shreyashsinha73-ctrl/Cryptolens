@@ -34,11 +34,19 @@ const SEV_CFG = {
     badgeBorder: 'border-cyan-300 dark:border-cyan-500/40',
     leftBar: 'bg-[#06B6D4]',
   },
+  info: {
+  label: 'INFO',
+  barColor: '#6B7280',
+  badgeBg: 'bg-gray-50 dark:bg-gray-500/15',
+  badgeText: 'text-gray-700 dark:text-gray-400',
+  badgeBorder: 'border-gray-300 dark:border-gray-500/40',
+  leftBar: 'bg-gray-400',
+},
 };
 
 const normalise = (sev) => {
-  const s = (sev || 'low').toLowerCase();
-  return s in SEV_CFG ? s : 'low';
+  const s = (sev || 'info').toLowerCase();
+  return s in SEV_CFG ? s : 'info';
 };
 
 // ── Single Finding Card ───────────────────────────────────────────────────────
@@ -179,7 +187,7 @@ const SocAlertsView = ({ liveThreats = null }) => {
 
   // Summary counts
   const counts = useMemo(() => {
-    const c = { critical: 0, high: 0, medium: 0, low: 0 };
+    const c = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
     (liveThreats || []).forEach(f => { const s = normalise(f.severity); if (s in c) c[s]++; });
     return c;
   }, [liveThreats]);
@@ -208,6 +216,7 @@ const SocAlertsView = ({ liveThreats = null }) => {
                 { key: 'high',     label: 'High',     color: '#F97316', bg: 'bg-orange-50 dark:bg-orange-500/10', text: 'text-orange-700 dark:text-orange-400', border: 'border-orange-200 dark:border-orange-500/30' },
                 { key: 'medium',   label: 'Medium',   color: '#EAB308', bg: 'bg-amber-50 dark:bg-amber-500/10', text: 'text-amber-700 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-500/30' },
                 { key: 'low',      label: 'Low',      color: '#06B6D4', bg: 'bg-cyan-50 dark:bg-cyan-500/10', text: 'text-cyan-700 dark:text-cyan-400', border: 'border-cyan-200 dark:border-cyan-500/30' },
+                { key: 'info',     label: 'Info',     color: '#6B7280', bg: 'bg-gray-50 dark:bg-gray-500/10', text: 'text-gray-700 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-500/30' },
               ].filter(s => counts[s.key] > 0).map(s => (
                 <button
                   key={s.key}
@@ -251,6 +260,7 @@ const SocAlertsView = ({ liveThreats = null }) => {
             <option value="high">High</option>
             <option value="medium">Medium</option>
             <option value="low">Low</option>
+            <option value="info">Info</option>
           </select>
 
           {/* Focus mode toggle */}
@@ -296,7 +306,7 @@ const SocAlertsView = ({ liveThreats = null }) => {
           {/* Sort: critical first */}
           {[...filtered]
             .sort((a, b) => {
-              const order = { critical: 0, high: 1, medium: 2, low: 3 };
+              const order = { critical: 0, high: 1, medium: 2, low: 3 , info: 4};
               return (order[normalise(a.severity)] ?? 4) - (order[normalise(b.severity)] ?? 4);
             })
             .map((f, i) => (

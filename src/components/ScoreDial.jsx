@@ -2,9 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '../context/useTheme.js';
 import Badge from './common/Badge.jsx';
 
-const ScoreDial = ({ overall_score, risk_level }) => {
+const ScoreDial = ({ overall_score, risk_level , nist_status}) => {
   const { isDark } = useTheme();
-  const score = Math.min(Math.max(overall_score ?? 0, 0), 100);
+  const isNotAssessed =
+  overall_score === null || overall_score === undefined;
+
+const score = isNotAssessed
+  ? 0
+  : Math.min(Math.max(overall_score, 0), 100);
 
   const radius = 56;
   const circumference = 2 * Math.PI * radius;
@@ -48,17 +53,27 @@ const ScoreDial = ({ overall_score, risk_level }) => {
   }, [score]);
 
   // Determine risk level and presentation strictly from backend or derived score
-  const normalizedRisk = (risk_level || (
-    score >= 90 ? 'LOW' :
-    score >= 75 ? 'MODERATE' :
-    score >= 50 ? 'HIGH' : 'CRITICAL'
-  )).toUpperCase();
+  const normalizedRisk = (
+    isNotAssessed
+      ? 'NOT_ASSESSED'
+        : (
+            risk_level || (
+              score >= 90 ? 'LOW' :
+              score >= 75 ? 'MODERATE' :
+              score >= 50 ? 'HIGH' : 'CRITICAL'
+            )
+          )
+  ).toUpperCase();
 
   let colorCode = '#EF3826'; // Red
   let badgeVariant = 'rejected';
   let statusText = 'CRITICAL RISK';
-
-  if (normalizedRisk === 'LOW' || normalizedRisk === 'COMPLIANT') {
+  if (normalizedRisk === 'NOT_ASSESSED') {
+    colorCode = '#9CA3AF';
+    badgeVariant = 'on_hold';
+    statusText = 'NOT ASSESSED';
+  }
+  else if (normalizedRisk === 'LOW' || normalizedRisk === 'COMPLIANT') {
     colorCode = '#00B69B'; // Green
     badgeVariant = 'completed';
     statusText = 'COMPLIANT (LOW RISK)';
@@ -125,17 +140,25 @@ const ScoreDial = ({ overall_score, risk_level }) => {
 
         {/* Centered Score */}
         <div className="relative flex flex-col items-center justify-center select-none">
-          <div className="flex items-baseline">
-            <span
-              className="text-5xl font-black font-['Nunito_Sans'] tracking-tight"
-              style={{ color: colorCode }}
+          {isNotAssessed ? (
+            <div
+              className="text-2xl font-black font-['Nunito_Sans'] tracking-tight text-gray-400 dark:text-gray-500 text-center"
             >
-              {displayNumber}
-            </span>
-            <span className="text-sm font-bold text-[#646464] dark:text-gray-400 ml-1">
-              /100
-            </span>
-          </div>
+              N/A
+            </div>
+          ) : (
+            <div className="flex items-baseline">
+              <span
+                className="text-5xl font-black font-['Nunito_Sans'] tracking-tight"
+                style={{ color: colorCode }}
+              >
+                {displayNumber}
+              </span>
+              <span className="text-sm font-bold text-[#646464] dark:text-gray-400 ml-1">
+                /100
+              </span>
+            </div>
+          )}
           <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mt-1">
             Score
           </span>
@@ -144,9 +167,18 @@ const ScoreDial = ({ overall_score, risk_level }) => {
 
       <div className="mt-6 flex flex-col items-center space-y-1.5">
         <span className="text-[11px] font-bold text-[#646464] dark:text-gray-400 tracking-wider uppercase">
-          NIST SP 800-77 Posture
+          Security Posture
         </span>
         <Badge variant={badgeVariant} label={statusText} size="md" />
+         <div className="mt-3 text-center">
+          <span className="text-[10px] font-bold text-[#646464] dark:text-gray-400 tracking-wider uppercase">
+            NIST SP 800-77
+          </span>
+
+          <div className="text-sm font-extrabold text-gray-900 dark:text-white mt-1">
+            {nist_status || 'NOT_ASSESSED'}
+          </div>
+        </div>
       </div>
     </div>
   );

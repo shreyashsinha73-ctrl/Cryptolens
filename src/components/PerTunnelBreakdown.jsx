@@ -6,12 +6,12 @@ import Card from './common/Card.jsx';
 const PerTunnelBreakdown = ({ tunnels = [] }) => {
   return (
     <Card
-      title="Monitored IPsec Security Associations"
+      title="Analyzed IPsec Configuration"
       subtitle="Deep packet telemetry & cryptographic posture breakdown"
       action={
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-[#646464] dark:text-gray-400 bg-[#F5F6FA] dark:bg-[#1B2431] px-3 py-1.5 rounded-[6px] border border-gray-200 dark:border-[#323D4E]">
-            Active SAs: <span className="text-[#4880FF] font-extrabold ml-1">{tunnels.length}</span>
+            Analyses: <span className="text-[#4880FF] font-extrabold ml-1">{tunnels.length}</span>
           </span>
         </div>
       }
@@ -22,8 +22,8 @@ const PerTunnelBreakdown = ({ tunnels = [] }) => {
         <table className="w-full text-left text-sm text-[#202224] dark:text-gray-200 whitespace-nowrap font-['Nunito_Sans']">
           <thead className="text-[12px] uppercase bg-[#F5F6FA] dark:bg-[#1B2431]/80 text-[#646464] dark:text-gray-400 font-bold tracking-wider border-b border-gray-100 dark:border-[#323D4E]">
             <tr>
-              <th className="px-6 py-4">Tunnel ID</th>
-              <th className="px-6 py-4">Status</th>
+              <th className="px-6 py-4">Analysis ID</th>
+              <th className="px-6 py-4">Risk Status</th>
               <th className="px-6 py-4">Encryption Cipher</th>
               <th className="px-6 py-4">Diffie-Hellman</th>
               <th className="px-6 py-4">PFS Status</th>
@@ -101,7 +101,7 @@ const PerTunnelBreakdown = ({ tunnels = [] }) => {
                   colSpan="8"
                   className="px-6 py-10 text-center text-gray-400 text-sm font-semibold"
                 >
-                  No active security associations found.
+                  No IPsec configuration data available.
                 </td>
               </tr>
             )}
