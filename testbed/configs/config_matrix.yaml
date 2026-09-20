@@ -1,0 +1,138 @@
+# CryptoLens IPsec Configuration Matrix
+# Ground-truth configurations for the 6 core testbed scenarios
+# Mapped to SIH 2026 Pitch v3 & Project Breakdown standards
+
+schema_version: "1.0"
+network:
+  peer_a:
+    name: "peer_a"
+    wan_ip: "10.10.0.1"
+    inner_ip: "192.168.1.1"
+    inner_subnet: "192.168.1.0/24"
+  peer_b:
+    name: "peer_b"
+    wan_ip: "10.10.0.2"
+    inner_ip: "192.168.2.1"
+    inner_subnet: "192.168.2.0/24"
+  psk: "CryptoLens_SIH2026_GroundTruthKey!"
+
+configurations:
+  - id: "config_01_tunnel_aes256gcm_dh19_pfson"
+    name: "Modern Hardened Tunnel (AES-256-GCM + DH19 + PFS ON)"
+    mode: "tunnel"
+    ike_version: 2
+    cipher: "aes256gcm16"
+    integrity: "aes256gcm16"
+    prf: "prfsha256"
+    dh_group: "ecp256"
+    dh_group_num: 19
+    pfs: true
+    rekey_time: "3600s"
+    ike_proposals: "aes256gcm16-prfsha256-ecp256"
+    esp_proposals: "aes256gcm16-ecp256"
+    benchmark_scores:
+      c_score: 1.00
+      k_score: 1.00
+      m_score: 1.00
+      compliance: "NIST SP 800-77 Rev 1 / CNSA 2.0 Compliant"
+    description: "Hardened modern tunnel mode with AES-256-GCM authenticated encryption, Elliptic Curve DH Group 19, and Perfect Forward Secrecy enabled."
+
+  - id: "config_02_tunnel_aes128gcm_dh14_pfson"
+    name: "Enterprise Baseline Tunnel (AES-128-GCM + DH14 + PFS ON)"
+    mode: "tunnel"
+    ike_version: 2
+    cipher: "aes128gcm16"
+    integrity: "aes128gcm16"
+    prf: "prfsha256"
+    dh_group: "modp2048"
+    dh_group_num: 14
+    pfs: true
+    rekey_time: "7200s"
+    ike_proposals: "aes128gcm16-prfsha256-modp2048"
+    esp_proposals: "aes128gcm16-modp2048"
+    benchmark_scores:
+      c_score: 0.85
+      k_score: 1.00
+      m_score: 1.00
+      compliance: "Standard Enterprise Baseline"
+    description: "Enterprise grade tunnel with AES-128-GCM and 2048-bit MODP DH Group 14 with PFS enabled."
+
+  - id: "config_03_tunnel_aes256cbc_sha256_dh14_pfson"
+    name: "Legacy Tunnel (AES-256-CBC + SHA256 + DH14 + PFS ON)"
+    mode: "tunnel"
+    ike_version: 2
+    cipher: "aes256"
+    integrity: "sha256"
+    prf: "prfsha256"
+    dh_group: "modp2048"
+    dh_group_num: 14
+    pfs: true
+    rekey_time: "14400s"
+    ike_proposals: "aes256-sha256-modp2048"
+    esp_proposals: "aes256-sha256-modp2048"
+    benchmark_scores:
+      c_score: 0.75
+      k_score: 1.00
+      m_score: 1.00
+      compliance: "Transitional Baseline"
+    description: "Traditional CBC mode tunnel with separate HMAC-SHA-256 integrity and DH Group 14."
+
+  - id: "config_04_transport_aes128cbc_sha1_dh5_pfsoff"
+    name: "Weak Transport Mode (AES-128-CBC + SHA1 + DH5 + PFS OFF)"
+    mode: "transport"
+    ike_version: 2
+    cipher: "aes128"
+    integrity: "sha1"
+    prf: "prfsha1"
+    dh_group: "modp1536"
+    dh_group_num: 5
+    pfs: false
+    rekey_time: "28800s"
+    ike_proposals: "aes128-sha1-modp1536"
+    esp_proposals: "aes128-sha1"
+    benchmark_scores:
+      c_score: 0.40
+      k_score: 0.50
+      m_score: 0.40
+      compliance: "Non-Compliant (Weak Hash & DH5, PFS Disabled, Transport Exposes Metadata)"
+    description: "Weakened transport mode configuration exhibiting SHA-1 vulnerabilities, undersized 1536-bit DH group, PFS disabled, and inner header exposure."
+
+  - id: "config_05_transport_3des_sha1_dh2_pfsoff"
+    name: "Severely Insecure Transport (3DES + SHA1 + DH2 + PFS OFF)"
+    mode: "transport"
+    ike_version: 2
+    cipher: "3des"
+    integrity: "sha1"
+    prf: "prfsha1"
+    dh_group: "modp1024"
+    dh_group_num: 2
+    pfs: false
+    rekey_time: "86400s"
+    ike_proposals: "3des-sha1-modp1024"
+    esp_proposals: "3des-sha1"
+    benchmark_scores:
+      c_score: 0.00
+      k_score: 0.00
+      m_score: 0.40
+      compliance: "Critical Vulnerability (Sweet32 3DES, DH1024 breakable, PFS Off)"
+    description: "High-risk legacy transport mode setting susceptible to Sweet32 (64-bit block cipher), broken 1024-bit DH Group 2, and exposed IP endpoints."
+
+  - id: "config_06_tunnel_3des_sha1_dh2_pfsoff"
+    name: "Severely Insecure Tunnel (3DES + SHA1 + DH2 + PFS OFF)"
+    mode: "tunnel"
+    ike_version: 2
+    cipher: "3des"
+    integrity: "sha1"
+    prf: "prfsha1"
+    dh_group: "modp1024"
+    dh_group_num: 2
+    pfs: false
+    rekey_time: "86400s"
+    ike_proposals: "3des-sha1-modp1024"
+    esp_proposals: "3des-sha1"
+    benchmark_scores:
+      c_score: 0.00
+      k_score: 0.00
+      m_score: 0.60
+      compliance: "Critical Vulnerability (Deprecated Cryptosuite)"
+    description: "Weak legacy tunnel mode configuration designed to test automated detection of broken cryptographic suites (3DES, SHA-1, DH Group 2) under tunnel encapsulation."

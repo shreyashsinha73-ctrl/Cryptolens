@@ -1,0 +1,30 @@
+# ==============================================================================
+# CryptoLens: AI-Driven IPsec Protocol Analysis & Security Assessment Platform
+# Stage 1 Testbed & Infrastructure Orchestration (SIH 2026)
+# ==============================================================================
+
+services:
+  testbed:
+    build:
+      context: .
+      dockerfile: testbed/docker/Dockerfile.strongswan
+    image: cryptolens-testbed:latest
+    container_name: cryptolens-testbed
+    privileged: true
+    network_mode: bridge
+    volumes:
+      - ./testbed:/workspace/testbed
+      - ./captures:/workspace/captures
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CONFIG_ID=${CONFIG_ID:-config_01_tunnel_aes256gcm_dh19_pfson}
+      - TRAFFIC=${TRAFFIC:-all}
+      - REPLAY=${REPLAY:-true}
+    working_dir: /workspace
+    # Default entrypoint runs the full capture suite across matrix or single session
+    command: >
+      bash -c "
+        echo '[docker-compose] Initializing CryptoLens IPsec Testbed...' &&
+        python3 /workspace/testbed/configs/generate_configs.py &&
+        /workspace/testbed/run_capture_session.sh --config \"$${CONFIG_ID}\" --traffic \"$${TRAFFIC}\" --replay \"$${REPLAY}\"
+      "
