@@ -11,6 +11,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import socket
+from typing import Iterator, Tuple
+
+from scapy.utils import RawPcapReader, RawPcapNgReader
 
 
 PCAP_MAGIC_MICROSECONDS = 0xA1B2C3D4
@@ -30,20 +34,306 @@ class PcapMetadata:
     end_time: Optional[str] = None
     duration_seconds: float = 0.0
     encapsulation: Optional[str] = None
+class PcapReader:
+    """
+    Small compatibility wrapper used by the native IKE parser.
+
+    Yields:
+        (timestamp, original_length, raw_packet_bytes, link_type)
+    """
+
+    def __init__(self, filepath: str | Path):
+        self.filepath = str(filepath)
+        self._reader = None
+        self._pcapng = False
+
+        file_format = validate_pcap(self.filepath)
+
+        if file_format == "pcapng":
+            self._reader = RawPcapNgReader(self.filepath)
+            self._pcapng = True
+        else:
+            self._reader = RawPcapReader(self.filepath)
+
+    def iter_packets(self) -> Iterator[Tuple[float, int, bytes, int]]:
+        if self._pcapng:
+            # Scapy's PCAPNG reader exposes packet metadata with
+            # interface/link-layer information.
+            for raw_bytes, meta in self._reader:
+                timestamp = float(getattr(meta, "sec", 0)) + (
+                    float(getattr(meta, "usec", 0)) / 1_000_000.0
+                )
+                orig_len = int(
+                    getattr(meta, "wirelen", getattr(meta, "caplen", len(raw_bytes)))
+                )
+                link_type = int(getattr(meta, "linktype", 1))
+                yield timestamp, orig_len, raw_bytes, link_type
+
+        else:
+            # Classic PCAP.
+            link_type = int(getattr(self._reader, "linktype", 1))
+
+            for raw_bytes, meta in self._reader:
+                timestamp = float(getattr(meta, "sec", 0)) + (
+                    float(getattr(meta, "usec", 0)) / 1_000_000.0
+                )
+                orig_len = int(
+                    getattr(meta, "wirelen", getattr(meta, "caplen", len(raw_bytes)))
+                )
+                yield timestamp, orig_len, raw_bytes, link_type
+
+    def close(self) -> None:
+        if self._reader is not None:
+            close_fn = getattr(self._reader, "close", None)
+            if callable(close_fn):
+                close_fn()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+def parse_packet_layers(
+    pkt_bytes: bytes,
+    link_type: int
+) -> Dict[str, Any]:
+    """
+    Minimal deterministic packet-layer parser used by the IKE parser.
+
+    Supports:
+      - Ethernet
+      - RAW IP
+      - Linux cooked capture (SLL)
+      - Linux cooked v2 (SLL2)
+      - IPv4 / IPv6
+      - UDP 500 / 4500
+      - ESP (IP protocol 50)
+
+    Returns a normalized dictionary consumed by ike_parser.py.
+    """
+
+    result = {
+        "is_ike": False,
+        "is_esp": False,
+        "ip_version": None,
+        "ip_proto": None,
+        "src_ip": None,
+        "dst_ip": None,
+        "src_port": None,
+        "dst_port": None,
+        "l4_payload": b"",
+    }
+
+    if not pkt_bytes:
+        return result
+
+    data = pkt_bytes
+    ether_type = None
+
+    # ---------------------------------------------------------
+    # Ethernet
+    # DLT_EN10MB = 1
+    # ---------------------------------------------------------
+    if link_type == 1:
+        if len(data) < 14:
+            return result
+
+        ether_type = struct.unpack("!H", data[12:14])[0]
+        offset = 14
+
+        # VLAN / QinQ
+        while ether_type in (0x8100, 0x88A8, 0x9100):
+            if len(data) < offset + 4:
+                return result
+
+            ether_type = struct.unpack("!H", data[offset + 2:offset + 4])[0]
+            offset += 4
+
+        data = data[offset:]
+
+    # ---------------------------------------------------------
+    # Linux cooked capture / SLL
+    # DLT_LINUX_SLL = 113
+    # ---------------------------------------------------------
+    elif link_type == 113:
+        if len(data) < 16:
+            return result
+
+        ether_type = struct.unpack("!H", data[14:16])[0]
+        data = data[16:]
+
+    # ---------------------------------------------------------
+    # Linux cooked capture v2 / SLL2
+    # DLT_LINUX_SLL2 = 276
+    # ---------------------------------------------------------
+    elif link_type == 276:
+        if len(data) < 20:
+            return result
+
+        ether_type = struct.unpack("!H", data[0:2])[0]
+        data = data[20:]
+
+    # ---------------------------------------------------------
+    # Raw IP
+    # DLT_RAW = 101
+    # ---------------------------------------------------------
+    elif link_type == 101:
+        if len(data) < 1:
+            return result
+
+        first_nibble = (data[0] >> 4) & 0x0F
+
+        if first_nibble == 4:
+            ether_type = 0x0800
+        elif first_nibble == 6:
+            ether_type = 0x86DD
+
+    else:
+        # Best-effort fallback: inspect first nibble as raw IP.
+        first_nibble = (data[0] >> 4) & 0x0F
+
+        if first_nibble == 4:
+            ether_type = 0x0800
+        elif first_nibble == 6:
+            ether_type = 0x86DD
+
+    # ---------------------------------------------------------
+    # IPv4
+    # ---------------------------------------------------------
+    if ether_type == 0x0800:
+        if len(data) < 20:
+            return result
+
+        version = (data[0] >> 4) & 0x0F
+        ihl = (data[0] & 0x0F) * 4
+
+        if version != 4 or ihl < 20 or len(data) < ihl:
+            return result
+
+        total_length = struct.unpack("!H", data[2:4])[0]
+        proto = data[9]
+
+        try:
+            src_ip = socket.inet_ntoa(data[12:16])
+            dst_ip = socket.inet_ntoa(data[16:20])
+        except OSError:
+            return result
+
+        result["ip_version"] = 4
+        result["ip_proto"] = proto
+        result["src_ip"] = src_ip
+        result["dst_ip"] = dst_ip
+
+        l4 = data[ihl:total_length] if total_length >= ihl else data[ihl:]
+
+    # ---------------------------------------------------------
+    # IPv6
+    # ---------------------------------------------------------
+    elif ether_type == 0x86DD:
+        if len(data) < 40:
+            return result
+
+        version = (data[0] >> 4) & 0x0F
+        if version != 6:
+            return result
+
+        next_header = data[6]
+
+        try:
+            src_ip = socket.inet_ntop(socket.AF_INET6, data[8:24])
+            dst_ip = socket.inet_ntop(socket.AF_INET6, data[24:40])
+        except OSError:
+            return result
+
+        result["ip_version"] = 6
+        result["ip_proto"] = next_header
+        result["src_ip"] = src_ip
+        result["dst_ip"] = dst_ip
+
+        l4 = data[40:]
+
+    else:
+        return result
+
+    # ---------------------------------------------------------
+    # ESP
+    # ---------------------------------------------------------
+    if result["ip_proto"] == 50:
+        result["is_esp"] = True
+        result["l4_payload"] = l4
+        return result
+
+    # ---------------------------------------------------------
+    # UDP
+    # ---------------------------------------------------------
+    if result["ip_proto"] == 17:
+        if len(l4) < 8:
+            return result
+
+        src_port, dst_port, udp_len, _checksum = struct.unpack(
+            "!HHHH",
+            l4[:8]
+        )
+
+        udp_payload = l4[8:]
+
+        result["src_port"] = src_port
+        result["dst_port"] = dst_port
+        result["l4_payload"] = udp_payload
+
+        # Native IKE:
+        #   UDP/500
+        #
+        # NAT-T:
+        #   UDP/4500 + 4-byte non-ESP marker (00 00 00 00)
+        is_port_500 = src_port == 500 or dst_port == 500
+        is_port_4500 = src_port == 4500 or dst_port == 4500
+
+        if is_port_500:
+            result["is_ike"] = True
+
+        elif is_port_4500:
+            if len(udp_payload) >= 4 and udp_payload[:4] == b"\x00\x00\x00\x00":
+                result["is_ike"] = True
+                result["l4_payload"] = udp_payload[4:]
+            else:
+                # UDP/4500 can also carry encapsulated ESP.
+                # Keep it classified as non-IKE unless the
+                # non-ESP marker is present.
+                result["is_ike"] = False
+
+    return result
 
 
 def get_tshark_binary() -> str:
     """Dynamically locates the tshark binary on the system."""
     binary = shutil.which("tshark")
-    if not binary:
-        # Fallback common system locations
-        for candidate in ["/usr/bin/tshark", "/usr/local/bin/tshark", "/bin/tshark"]:
-            if os.path.exists(candidate) and os.access(candidate, os.X_OK):
-                return candidate
-        raise FileNotFoundError(
-            "tshark binary not found on the system. Please ensure wireshark/tshark is installed."
-        )
-    return binary
+    if binary:
+        return binary
+
+    candidates = [
+        "/usr/bin/tshark",
+        "/usr/local/bin/tshark",
+        "/bin/tshark",
+        r"C:\Program Files\Wireshark\tshark.exe",
+        r"C:\Program Files (x86)\Wireshark\tshark.exe",
+        os.path.join(
+            os.path.expanduser("~"),
+            "Downloads",
+            "Wireshark",
+            "tshark.exe",
+        ),
+    ]
+
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+
+    raise FileNotFoundError(
+        "tshark binary not found on the system. "
+        "Please ensure Wireshark/TShark is installed."
+    )
 
 
 def get_capinfos_binary() -> Optional[str]:
@@ -252,4 +542,6 @@ def filter_and_save_pcap(
         meta = get_pcap_metadata(output_path)
         return meta.packet_count
     return 0
+# Backward-compatible names used by older Part 2 tests.
+PcapReaderCompat = PcapReader
 

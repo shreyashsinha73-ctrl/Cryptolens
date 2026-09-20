@@ -162,8 +162,49 @@ class ScoringEngine:
 
     def evaluate(self, analysis_input: dict):
         findings = []
-        control_plane = analysis_input.get('control_plane', {})
-        data_plane = analysis_input.get('data_plane', {})
+        control_plane = analysis_input.get("control_plane") or {}
+        data_plane = analysis_input.get("data_plane") or {}
+        if not control_plane:
+    # Control-plane evidence is absent.
+    # This is not equivalent to a failed security configuration.
+            self.evaluate_encryption(control_plane, findings)
+            self.evaluate_integrity(control_plane, findings)
+            self.evaluate_key_exchange(control_plane, findings)
+            self.evaluate_pfs(control_plane, findings)
+            self.evaluate_replay_protection(control_plane, findings)
+            self.evaluate_key_lifetime(control_plane, findings)
+            self.evaluate_ike_version(control_plane, findings)
+            self.evaluate_mode(control_plane, findings)
+
+            h_mode = data_plane.get("heuristic_mode_prediction")
+            l_mode = data_plane.get("llm_mode_prediction")
+
+            agreement_flag = (
+                h_mode is not None
+                and l_mode is not None
+                and h_mode == l_mode
+            )
+
+            ai_confidence = data_plane.get("ai_confidence_score", 0.0)
+
+            return {
+                "score": None,
+                "risk_level": "NOT_ASSESSED",
+                "findings": findings,
+                "score_breakdown": {
+                    "encryption": {"score": 0.0, "max_score": self.weights["encryption"]},
+                    "integrity": {"score": 0.0, "max_score": self.weights["integrity"]},
+                    "key_exchange": {"score": 0.0, "max_score": self.weights["key_exchange"]},
+                    "pfs": {"score": 0.0, "max_score": self.weights["pfs"]},
+                    "replay_protection": {"score": 0.0, "max_score": self.weights["replay_protection"]},
+                    "key_lifetime": {"score": 0.0, "max_score": self.weights["key_lifetime"]},
+                    "ike_version": {"score": 0.0, "max_score": self.weights["ike_version"]},
+                    "mode": {"score": 0.0, "max_score": self.weights["mode"]},
+                },
+                "ai_confidence_score": ai_confidence,
+                "agreement_flag": agreement_flag,
+            }
+        
 
         encryption_score = self.evaluate_encryption(control_plane, findings)
         integrity_score = self.evaluate_integrity(control_plane, findings)

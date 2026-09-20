@@ -33,6 +33,7 @@ else
 fi
 
 VENV_DIR="$PROJECT_ROOT/.venv"
+<<<<<<< HEAD
 
 # Check for existing venv on Unix vs Windows
 if [ -f "$VENV_DIR/Scripts/python.exe" ]; then
@@ -55,13 +56,35 @@ else
     PYTHON_BIN="$SYSTEM_PYTHON"
     PIP_BIN="$SYSTEM_PYTHON -m pip"
   fi
+=======
+PYTHON_BIN="$VENV_DIR/bin/python"
+PIP_BIN="$VENV_DIR/bin/pip"
+
+# Create virtual environment if not already present
+if [ ! -f "$PYTHON_BIN" ]; then
+  echo "Creating virtual environment at .venv using $SYSTEM_PYTHON..."
+  "$SYSTEM_PYTHON" -m venv "$VENV_DIR" || {
+    echo "Notice: Standard venv module failed, trying system python directly."
+    PYTHON_BIN="$SYSTEM_PYTHON"
+    PIP_BIN="$SYSTEM_PYTHON -m pip"
+  }
+>>>>>>> 09ed384854c6a471d409aeed5b20daf4a821a5d1
 fi
 
 # Install/Update backend dependencies from requirements.txt
 if [ -f "$PROJECT_ROOT/requirements.txt" ]; then
   echo "Verifying / Installing Python dependencies from requirements.txt..."
+<<<<<<< HEAD
   "$PYTHON_BIN" -m pip install --quiet --upgrade pip 2>/dev/null || true
   "$PYTHON_BIN" -m pip install --quiet -r "$PROJECT_ROOT/requirements.txt" || true
+=======
+  if [ -f "$VENV_DIR/bin/pip" ]; then
+    "$VENV_DIR/bin/pip" install --quiet --upgrade pip
+    "$VENV_DIR/bin/pip" install --quiet -r "$PROJECT_ROOT/requirements.txt"
+  else
+    $PIP_BIN install --quiet -r "$PROJECT_ROOT/requirements.txt"
+  fi
+>>>>>>> 09ed384854c6a471d409aeed5b20daf4a821a5d1
 fi
 
 # ------------------------------------------------------------------------------

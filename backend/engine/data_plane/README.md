@@ -63,17 +63,3 @@ and read off `mode_logits`/`traffic_logits` by argmax. Also surface the
 softmax max-probability as the "uncalibrated confidence" your demo script
 (Section 7, step 5) displays — the doc is explicit that this confidence
 should be labeled uncalibrated, not treated as a true probability.
-
-## Known gaps to fix before the real demo
-- `feature_extract.py`'s filename-based labeling is a placeholder — lock in
-  the real naming convention with whoever owns `run_capture_session.sh`.
-- The shared-trunk two-head model is an MVP simplification (see
-  `cnn_model.py` docstring) — split into two models if the heads' losses
-  visibly fight each other during training on real data.
-- No entropy channel or BiLSTM yet — those are explicitly Roadmap per the
-  project doc, not MVP blockers.
-- No NAT-Traversal support — ESP encapsulated in UDP port 4500 (used when
-  either IPsec peer is behind NAT) won't be detected as ESP by
-  `feature_extract.py`'s proto==50 check. Fine for a direct, non-NATed lab
-  testbed; flag as a known limitation if judges ask about real-world
-  deployment, and revisit if the testbed ever adds a NATed config.

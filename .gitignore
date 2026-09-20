@@ -29,9 +29,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 .venv
+.venv/
 venv/
 *.pcap_demux/
 *_demux/
+<<<<<<< HEAD
 test.pcapng
 
 # Dynamic uploads and test outputs
@@ -40,3 +42,13 @@ backend/stored_results/job_*
 data_plane_test_output/
 test_pcaps/
 
+=======
+
+# Temporary / Generated runtime artifacts
+backend/uploads/
+backend/stored_results/
+backend/generated_reports/
+*.pcap
+*.pcapng
+*.pdf
+>>>>>>> 09ed384854c6a471d409aeed5b20daf4a821a5d1
