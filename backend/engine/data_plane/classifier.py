@@ -66,18 +66,83 @@ def _extract_sequences(esp_features: Dict[str, Any]) -> tuple[list, list, int]:
     return s_l, s_iat, int(packet_count)
 
 
-def _classify_via_cnn(esp_features: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    CNN inference backend stub.
+_ONNX_SESSION = None
+_NORM_MEAN = None
+_NORM_STD = None
 
-    Intended production path:
-    Load `weights/cnn_mode_traffic.onnx` (exported by `train.py`) via onnxruntime,
-    pass normalized `(1, 2, 30)` tensor, and return argmax predictions.
-    """
-    raise NotImplementedError(
-        "CNN backend is not yet wired for live inference. "
-        "Production path: load 'weights/cnn_mode_traffic.onnx' exported by train.py."
-    )
+def _get_onnx_session():
+    global _ONNX_SESSION, _NORM_MEAN, _NORM_STD
+    if _ONNX_SESSION is None:
+        try:
+            import onnxruntime as ort
+        except ImportError as e:
+            raise RuntimeError(f"onnxruntime is required for CNN inference: {e}")
+
+        from pathlib import Path
+        import numpy as np
+        import json
+
+        weights_dir = Path(__file__).resolve().parent / "weights"
+        model_path = weights_dir / "cnn_mode_traffic.onnx"
+        metrics_path = weights_dir / "metrics.json"
+
+        if not model_path.exists():
+            raise FileNotFoundError(f"CNN model weights not found at {model_path}")
+
+        _ONNX_SESSION = ort.InferenceSession(str(model_path))
+
+        if metrics_path.exists():
+            with open(metrics_path, "r") as f:
+                meta = json.load(f)
+            _NORM_MEAN = np.array(meta.get("normalization_mean", [362.43, 0.13]), dtype=np.float32).reshape(1, 2, 1)
+            _NORM_STD = np.array(meta.get("normalization_std", [450.83, 0.25]), dtype=np.float32).reshape(1, 2, 1)
+        else:
+            _NORM_MEAN = np.array([362.43, 0.13], dtype=np.float32).reshape(1, 2, 1)
+            _NORM_STD = np.array([450.83, 0.25], dtype=np.float32).reshape(1, 2, 1)
+
+    return _ONNX_SESSION, _NORM_MEAN, _NORM_STD
+
+def _classify_via_cnn(esp_features: Dict[str, Any]) -> Dict[str, Any]:
+    import numpy as np
+    session, mean, std = _get_onnx_session()
+    s_l, s_iat, packet_count = _extract_sequences(esp_features)
+
+    seq_len = 30
+    s_l_padded = (list(s_l)[:seq_len] + [0.0] * seq_len)[:seq_len]
+    s_iat_padded = (list(s_iat)[:seq_len] + [0.0] * seq_len)[:seq_len]
+
+    x = np.array([s_l_padded, s_iat_padded], dtype=np.float32).reshape(1, 2, seq_len)
+    x_norm = (x - mean) / (std + 1e-8)
+
+    input_name = session.get_inputs()[0].name
+    outputs = session.run(None, {input_name: x_norm})
+    mode_logits, traffic_logits = outputs[0], outputs[1]
+
+    def softmax(z):
+        e = np.exp(z - np.max(z))
+        return e / (e.sum() + 1e-12)
+
+    mode_probs = softmax(mode_logits[0])
+    traffic_probs = softmax(traffic_logits[0])
+
+    mode_idx = int(np.argmax(mode_probs))
+    traffic_idx = int(np.argmax(traffic_probs))
+
+    mode_classes = ["transport", "tunnel"]
+    traffic_classes = ["https", "voip", "icmp"]
+
+    pred_mode = mode_classes[mode_idx]
+    pred_traffic = traffic_classes[traffic_idx]
+    mode_conf = float(mode_probs[mode_idx])
+    traffic_conf = float(traffic_probs[traffic_idx])
+
+    return {
+        "mode": pred_mode,
+        "mode_confidence": round(mode_conf, 2),
+        "traffic_type": pred_traffic,
+        "traffic_confidence": round(traffic_conf, 2),
+        "backend": BACKEND_CNN,
+    }
 
 
 def _classify_via_llm(esp_features: Dict[str, Any]) -> Dict[str, Any]:
@@ -194,7 +259,7 @@ def classify_traffic(esp_features: Dict[str, Any]) -> Dict[str, Any]:
         "error": str (optional, present on failure)
     }
     """
-    backend = os.getenv("CLASSIFIER_BACKEND", BACKEND_LLM).lower().strip()
+    backend = os.getenv("CLASSIFIER_BACKEND", BACKEND_CNN).lower().strip()
 
     if backend == BACKEND_CNN:
         try:

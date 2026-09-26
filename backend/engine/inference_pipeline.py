@@ -23,40 +23,77 @@ from backend.engine.llm_client.schema import (
 logger = logging.getLogger(__name__)
 
 
+import os
+from backend.engine.llm_client.schema import ModeInferenceResult, TrafficInferenceResult
+
 def infer_mode_and_traffic(
     packet_lengths: list[float],
     inter_arrival_times: list[float],
     packet_count: int,
 ) -> Optional[LLMInferenceResponse]:
-    """
-    Call Gemini API to infer both operating mode and traffic type.
+    backend = os.getenv("CLASSIFIER_BACKEND", "cnn").lower().strip()
 
-    Args:
-        packet_lengths: ESP packet lengths (first 30 packets, in bytes)
-        inter_arrival_times: Inter-arrival times (in seconds)
-        packet_count: Total ESP packets in the flow
+    if backend == "cnn":
+        try:
+            from backend.engine.data_plane.classifier import classify_traffic
+            res = classify_traffic({
+                "lengths": packet_lengths,
+                "iats": inter_arrival_times,
+                "total_esp_packets": packet_count,
+            })
+            if not res.get("error"):
+                logger.info(f"CNN inference: mode={res['mode']} ({res['mode_confidence']:.2f}), traffic={res['traffic_type']} ({res['traffic_confidence']:.2f})")
+                return LLMInferenceResponse(
+                    mode=ModeInferenceResult(
+                        predicted_mode=res["mode"],
+                        confidence=res["mode_confidence"],
+                    ),
+                    traffic=TrafficInferenceResult(
+                        predicted_traffic_type=res["traffic_type"],
+                        confidence=res["traffic_confidence"],
+                    ),
+                    model_version="cnn-1d-dataplane",
+                )
+        except Exception as e:
+            logger.warning(f"CNN inference error, attempting LLM fallback: {e}")
 
-    Returns:
-        LLMInferenceResponse with predictions + confidences, or None if API fails.
-    """
     config = GeminiClientConfig()
-    if not config.validate():
-        logger.error("Gemini API not configured; inference skipped")
-        return None
-
-    client = GeminiClient(config)
-    request = ModeAndTrafficInferenceRequest(
-        packet_lengths=packet_lengths,
-        inter_arrival_times=inter_arrival_times,
-        packet_count=packet_count,
-    )
-
-    result = client.infer_mode_and_traffic(request)
-    if not result:
+    if config.validate():
+        client = GeminiClient(config)
+        request = ModeAndTrafficInferenceRequest(
+            packet_lengths=packet_lengths,
+            inter_arrival_times=inter_arrival_times,
+            packet_count=packet_count,
+        )
+        result = client.infer_mode_and_traffic(request)
+        if result:
+            return result
         logger.warning("Gemini API inference failed")
-        return None
 
-    return result
+    if backend != "cnn":
+        try:
+            from backend.engine.data_plane.classifier import classify_traffic
+            res = classify_traffic({
+                "lengths": packet_lengths,
+                "iats": inter_arrival_times,
+                "total_esp_packets": packet_count,
+            })
+            if not res.get("error"):
+                return LLMInferenceResponse(
+                    mode=ModeInferenceResult(
+                        predicted_mode=res["mode"],
+                        confidence=res["mode_confidence"],
+                    ),
+                    traffic=TrafficInferenceResult(
+                        predicted_traffic_type=res["traffic_type"],
+                        confidence=res["traffic_confidence"],
+                    ),
+                    model_version="cnn-1d-dataplane",
+                )
+        except Exception as e:
+            logger.warning(f"Fallback CNN inference failed: {e}")
+
+    return None
 
 
 def validate_and_merge(
