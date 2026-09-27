@@ -20,8 +20,21 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import sys
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Auto-switch to .venv python if available and not currently running inside a virtual environment
+if sys.prefix == sys.base_prefix:
+    venv_python = PROJECT_ROOT / ".venv" / "bin" / "python3"
+    if venv_python.exists():
+        import os
+        os.execv(str(venv_python), [str(venv_python)] + sys.argv)
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+except ImportError:
+    pass
 
 from backend.engine.data_plane.feature_extract import (
     parse_label_from_filename,
@@ -71,10 +84,12 @@ def validate_dataset(dataset_dir: Path, verbose: bool = False) -> Dict[str, Any]
     """
     pcap_files = sorted(dataset_dir.glob("*__*__*__*.pcap"))
     if not pcap_files:
-        logger.warning(f"No labeled PCAPs found in {dataset_dir}")
+        pcap_files = sorted([f for f in dataset_dir.glob("*.pcap")]) + sorted([f for f in dataset_dir.glob("*.pcapng")])
+    if not pcap_files:
+        logger.warning(f"No PCAP files found in {dataset_dir}")
         return _empty_metrics()
 
-    logger.info(f"Found {len(pcap_files)} labeled PCAPs")
+    logger.info(f"Found {len(pcap_files)} PCAP files for validation")
 
     # Track results
     mode_predictions: List[Tuple[str, str]] = []  # (ground_truth, predicted)
@@ -257,9 +272,10 @@ def main():
     )
     parser.add_argument(
         "--dataset-dir",
+        "--dir",
         type=Path,
-        default=Path("backend/validation_dataset"),
-        help="Path to labeled PCAP directory",
+        default=Path("captures"),
+        help="Path to labeled PCAP directory (default: captures)",
     )
     parser.add_argument(
         "--output",

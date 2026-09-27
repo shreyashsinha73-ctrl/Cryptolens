@@ -1,9 +1,13 @@
 # ==============================================================================
 # CryptoLens: AI-Driven IPsec Protocol Analysis & Security Assessment Platform
-# Stage 1 Testbed & Infrastructure Orchestration (SIH 2026)
+# Multi-Service Orchestration: Testbed (Stage 1), Backend/AI (Stages 2-3), Frontend (Stage 4)
+# Mapped to SIH 2026 Pitch v3 & Project Breakdown standards
 # ==============================================================================
 
 services:
+  # -------------------------------------------------------------
+  # STAGE 1: IPsec Testbed & Ground Truth Traffic Generator
+  # -------------------------------------------------------------
   testbed:
     build:
       context: .
@@ -21,10 +25,47 @@ services:
       - TRAFFIC=${TRAFFIC:-all}
       - REPLAY=${REPLAY:-true}
     working_dir: /workspace
-    # Default entrypoint runs the full capture suite across matrix or single session
     command: >
       bash -c "
         echo '[docker-compose] Initializing CryptoLens IPsec Testbed...' &&
         python3 /workspace/testbed/configs/generate_configs.py &&
         /workspace/testbed/run_capture_session.sh --config \"$${CONFIG_ID}\" --traffic \"$${TRAFFIC}\" --replay \"$${REPLAY}\"
       "
+
+  # -------------------------------------------------------------
+  # STAGES 2 & 3: FastAPI Backend, Demuxer, & AI Scoring Engines
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: cryptolens-backend:latest
+    container_name: cryptolens-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/workspace/backend
+      - ./captures:/workspace/captures
+    environment:
+      - PYTHONUNBUFFERED=1
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - CLASSIFIER_BACKEND=${CLASSIFIER_BACKEND:-cnn}
+      - ANALYZER_MODE=${ANALYZER_MODE:-real}
+    working_dir: /workspace
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # -------------------------------------------------------------
+  # STAGE 4: Interactive React + Tailwind Dashboard
+  # -------------------------------------------------------------
+  frontend:
+    image: node:20-alpine
+    container_name: cryptolens-frontend
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+    command: sh -c "npm install --silent && npm run dev -- --host 0.0.0.0"

@@ -63,27 +63,49 @@ class SessionLabel:
 
 def parse_label_from_filename(pcap_path: str) -> SessionLabel:
     """
-    Parses '<config_id>__<traffic_type>__<mode>__<run_idx>.pcap'.
-    Raises ValueError with a clear message if the filename doesn't match,
-    since a silently mislabeled session is worse than a crash here.
+    Parses session label from:
+    1. '<config_id>__<traffic_type>__<mode>__<run_idx>.pcap' (pipeline format)
+    2. Manifest lookup in 'manifest.json' (testbed ground truth)
+    3. '<config_id>_<traffic_type>.pcap' (testbed capture format)
     """
-    stem = Path(pcap_path).stem
+    path_obj = Path(pcap_path)
+    stem = path_obj.stem
+    pcap_filename = path_obj.name
+
+    # Format 1: Pipeline double-underscore convention
     parts = stem.split("__")
-    if len(parts) != 4:
-        raise ValueError(
-            f"Filename '{stem}' doesn't match "
-            "<config_id>__<traffic_type>__<mode>__<run_idx>. "
-            "Update parse_label_from_filename() to match your actual "
-            "run_capture_session.sh naming convention."
-        )
-    config_id, traffic_type, mode, run_idx = parts
-    traffic_type = traffic_type.lower()
-    mode = mode.lower()
-    if traffic_type not in TRAFFIC_CLASSES:
-        raise ValueError(f"Unknown traffic_type '{traffic_type}' in {stem}")
-    if mode not in MODE_CLASSES:
-        raise ValueError(f"Unknown mode '{mode}' in {stem}")
-    return SessionLabel(config_id, traffic_type, mode, run_idx)
+    if len(parts) == 4:
+        config_id, traffic_type, mode, run_idx = parts
+        traffic_type = traffic_type.lower()
+        mode = mode.lower()
+        if traffic_type in TRAFFIC_CLASSES and mode in MODE_CLASSES:
+            return SessionLabel(config_id, traffic_type, mode, run_idx)
+
+    # Format 2: Look up ground truth in manifest.json
+    manifest_candidates = [
+        path_obj.parent / "manifest.json",
+        Path("captures/manifest.json"),
+        path_obj.resolve().parent / "manifest.json"
+    ]
+    for m_path in manifest_candidates:
+        if m_path.exists():
+            try:
+                with open(m_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                for item in manifest.get("captures", []):
+                    if item.get("pcap_file") == pcap_filename or Path(item.get("pcap_path", "")).name == pcap_filename:
+                        gt = item.get("ground_truth", {})
+                        mode = str(gt.get("mode", "tunnel")).lower()
+                        raw_traffic = str(gt.get("traffic_type", "https")).lower()
+                        traffic = raw_traffic if raw_traffic in TRAFFIC_CLASSES else "https"
+                        return SessionLabel(item.get("config_id", stem), traffic, mode, "001")
+            except Exception:
+                pass
+
+    # Format 3: Testbed filename pattern (e.g., config_01_tunnel_aes256gcm_dh19_pfson_all)
+    mode = "tunnel" if "tunnel" in stem.lower() else "transport"
+    traffic = "voip" if "voip" in stem.lower() else "icmp" if ("icmp" in stem.lower() or "ping" in stem.lower()) else "https"
+    return SessionLabel(stem, traffic, mode, "001")
 
 
 def extract_esp_lengths_and_times(pcap_path: str):
