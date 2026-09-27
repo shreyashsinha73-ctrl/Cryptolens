@@ -1,22 +1,20 @@
+
 import json
 import os
 from pathlib import Path
+from typing import Any, Dict, Optional
+
+from backend.engine.control_plane.ike_parser import IkeParser
+from backend.engine.data_plane.traffic_analyzer import analyze_data_plane
+from backend.schemas.analysis import ControlPlaneData, DataPlaneData
+
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-MOCK_JSON_PATH = BASE_DIR / "mock_data" / "analysis_input.json"
 
 
 class AnalyzerProvider:
-    """
-    Provides analysis JSON to the backend.
-
-    Modes:
-        mock -> reads analysis_input.json
-        real -> placeholder for the real Part 1-4 pipeline
-    """
-
-    def __init__(self, mode: str = "mock"):
+    def __init__(self, mode: str = "real"):
         self.mode = mode.lower()
 
         if self.mode not in {"mock", "real"}:
@@ -25,54 +23,87 @@ class AnalyzerProvider:
                 "Use 'mock' or 'real'."
             )
 
-    def get_analysis(self, pcap_path: str) -> dict:
+    @staticmethod
+    def _normalize_encryption_algorithm(
+        encryption: Optional[str],
+    ) -> Optional[str]:
         """
-        Analyze the supplied PCAP and return JSON A as a Python dictionary.
-        """
+        Normalize Part 2 parser naming to the canonical CryptoLens format.
 
+        Part 2 may return:
+            AES-GCM-256
+            AES-GCM-128
+            AES-CBC-256
+            AES-CBC-128
+
+        Part 5 expects:
+            AES-256-GCM
+            AES-128-GCM
+            AES-256-CBC
+            AES-128-CBC
+        """
+        if encryption is None:
+            return None
+
+        normalized = str(encryption).strip()
+
+        encryption_map = {
+            "AES-GCM-256": "AES-256-GCM",
+            "AES-GCM-128": "AES-128-GCM",
+            "AES-CBC-256": "AES-256-CBC",
+            "AES-CBC-128": "AES-128-CBC",
+        }
+
+        return encryption_map.get(normalized, normalized)
+
+    def get_analysis(self, pcap_path: str) -> Dict[str, Any]:
         if self.mode == "mock":
-            return self._get_mock_analysis()
+            mock_path = BASE_DIR / "mock_data" / "analysis_input.json"
+
+            if mock_path.exists():
+                with mock_path.open("r", encoding="utf-8") as f:
+                    return json.load(f)
 
         return self._get_real_analysis(pcap_path)
 
-    def _get_mock_analysis(self) -> dict:
-        """Load the dummy JSON A from disk."""
+    def _get_real_analysis(self, pcap_path: str) -> Dict[str, Any]:
+        # Part 2: use the actual parser interface.
+        parser = IkeParser(pcap_path)
+        parser_result = parser.parse()
 
-        if not MOCK_JSON_PATH.exists():
-            raise FileNotFoundError(
-                f"Mock analysis file not found: {MOCK_JSON_PATH}"
+        # IkeParser.parse() returns a wrapper object containing
+        # "control_plane".
+        control_plane_raw = parser_result.get("control_plane")
+
+        if control_plane_raw is None:
+            control_plane = None
+        else:
+            # Normalize Part 2 naming before Part 5 sees the data.
+            control_plane_raw = dict(control_plane_raw)
+
+            control_plane_raw["encryption_algorithm"] = (
+                self._normalize_encryption_algorithm(
+                    control_plane_raw.get("encryption_algorithm")
+                )
             )
 
-        with open(MOCK_JSON_PATH, "r", encoding="utf-8") as file:
-            data = json.load(file)
+            # Validate the normalized Part 2 output against our
+            # backend schema.
+            control_plane = ControlPlaneData(
+                **control_plane_raw
+            ).model_dump()
 
-        return data
+        # Part 3 intentionally remains unchanged for now.
+        data_plane_raw = analyze_data_plane(pcap_path)
+        data_plane = DataPlaneData(**data_plane_raw).model_dump()
 
-    def _get_real_analysis(self, pcap_path: str) -> dict:
-        """
-        Run the real Part 1-4 pipeline.
-
-        TODO:
-        Replace this with the actual integration once
-        Parts 1-4 provide their interfaces.
-        """
-
-        raise NotImplementedError(
-            "Real analyzer integration is not connected yet. "
-            "Set ANALYZER_MODE=mock for the POC."
-        )
+        return {
+            "control_plane": control_plane,
+            "data_plane": data_plane,
+        }
 
 
 def get_analyzer_provider() -> AnalyzerProvider:
-    """
-    Create the analyzer provider using the ANALYZER_MODE
-    environment variable.
-
-    Example:
-        ANALYZER_MODE=mock
-        ANALYZER_MODE=real
-    """
-
-    mode = os.getenv("ANALYZER_MODE", "mock")
-
+    mode = os.getenv("ANALYZER_MODE", "real")
     return AnalyzerProvider(mode=mode)
+

@@ -2,16 +2,95 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 import aiofiles
+from fastapi import APIRouter, File, HTTPException, UploadFile, status, BackgroundTasks
 from backend.schemas.analysis import ErrorResponse, UploadResponse
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from backend.scoring.scoring_engine import ScoringEngine
+from backend.services.result_store import ResultStore
+from backend.services.analyzer_provider import get_analyzer_provider
+from backend.scoring.compliance_engine import ComplianceEngine
 
 router = APIRouter()
 
-UPLOAD_DIR = Path("backend/uploads")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+UPLOAD_DIR = PROJECT_ROOT / "backend" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_EXTENSIONS = {".pcap", ".pcapng", ".cap"}
 
+from backend.services.analyzer_provider import AnalyzerProvider
 
+# 2. Instantiate the engines globally for the route
+scorer = ScoringEngine()
+provider = get_analyzer_provider()
+compliance_engine = ComplianceEngine()
+result_store = ResultStore()
+
+async def process_pcap_pipeline(job_id: str, file_path: Path):
+    try:
+        # Part 2 is now integrated through AnalyzerProvider.
+        # The provider calls IkeParser.parse(), unwraps control_plane,
+        # and normalizes parser output for the backend contract.
+        analysis_input = provider.get_analysis(str(file_path))
+
+        # Part 5: authoritative security scoring
+        evaluation = scorer.evaluate(analysis_input)
+
+        # Part 5: standards alignment
+        compliance_result = compliance_engine.evaluate(analysis_input)
+
+        # Calculate processed packet count from the available data plane.
+        # This remains compatible with the current placeholder Part 3.
+        processed_packets = sum(
+            item.get("packet_count", 0)
+            for item in analysis_input.get("data_plane", {}).get(
+                "detected_traffic", []
+            )
+        )
+
+        security_score = evaluation["score"]
+
+        if security_score is None:
+            risk_level = "NOT_ASSESSED"
+        else:
+            risk_level = evaluation["risk_level"]
+
+        result_payload = {
+            "job_id": job_id,
+            "status": "completed",
+            "summary": {
+                "overall_security_score": security_score,
+                "risk_level": risk_level,
+                "ai_confidence_score": evaluation["ai_confidence_score"],
+                "agreement_flag": evaluation["agreement_flag"],
+                "processed_packets": processed_packets,
+            },
+            "control_plane": analysis_input.get("control_plane"),
+
+            "data_plane": analysis_input.get("data_plane"),
+
+            "score_breakdown": evaluation.get(
+                "score_breakdown", {}
+            ),
+
+            "threat_matrix": evaluation.get(
+                "findings", []
+            ),
+
+            "compliance": compliance_result,
+        }
+
+        result_store.save(job_id, result_payload)
+
+    except Exception as exc:
+        error_payload = {
+            "job_id": job_id,
+            "status": "failed",
+            "error": {
+                "error_code": "ANALYSIS_FAILED",
+                "message": str(exc),
+            },
+        }
+
+        result_store.save(job_id, error_payload)
 @router.post(
     "/analyze",
     response_model=UploadResponse,
@@ -21,43 +100,51 @@ ALLOWED_EXTENSIONS = {".pcap", ".pcapng", ".cap"}
         500: {"model": ErrorResponse},
     },
 )
-async def analyze_pcap(file: UploadFile = File(...)):
-  # 1. Robust extension check
-  file_ext = Path(file.filename).suffix.lower()
-  if file_ext not in ALLOWED_EXTENSIONS:
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail={
-            "error_code": "INVALID_FILE_FORMAT",
-            "message": "Only .pcap, .pcapng, and .cap files are supported.",
-        },
+async def analyze_pcap(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "INVALID_FILE_FORMAT",
+                "message": "Only .pcap, .pcapng, and .cap files are supported.",
+            },
+        )
+
+    job_id = f"job_{uuid.uuid4().hex[:8]}"
+    safe_filename = f"{job_id}{file_ext}"
+    file_path = (UPLOAD_DIR / safe_filename).resolve()
+
+    try:
+        async with aiofiles.open(file_path, "wb") as buffer:
+            while chunk := await file.read(1024 * 1024):
+                await buffer.write(chunk)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "FILE_SAVE_FAILED",
+                "message": f"Could not save uploaded file: {str(e)}",
+            },
+        )
+    finally:
+        await file.close()
+
+    if not file_path.is_file() or file_path.stat().st_size == 0:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "FILE_SAVE_FAILED",
+                "message": f"Uploaded PCAP was not written to {file_path}",
+            },
+        )
+
+    # Trigger background task
+    background_tasks.add_task(process_pcap_pipeline, job_id, file_path)
+
+    return UploadResponse(
+        job_id=job_id,
+        status="processing",
+        filename=file.filename,
+        uploaded_at=datetime.now(timezone.utc).isoformat(),
     )
-
-  # 2. Generate unique tracking ID
-  job_id = f"job_{uuid.uuid4().hex[:8]}"
-  safe_filename = f"{job_id}{file_ext}"
-  file_path = UPLOAD_DIR / safe_filename
-
-  try:
-    # 3. Asynchronously stream and write the uploaded PCAP file to disk
-    async with aiofiles.open(file_path, "wb") as buffer:
-      while chunk := await file.read(1024 * 1024):  # 1MB chunks
-        await buffer.write(chunk)
-  except Exception as e:
-    raise HTTPException(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        detail={
-            "error_code": "FILE_SAVE_FAILED",
-            "message": f"Could not save uploaded file: {str(e)}",
-        },
-    )
-  finally:
-    await file.close()
-
-  # 4. Return matching Pydantic contract
-  return UploadResponse(
-      job_id=job_id,
-      status="processing",
-      filename=file.filename,
-      uploaded_at=datetime.now(timezone.utc).isoformat(),
-  )

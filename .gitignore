@@ -22,3 +22,32 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv
+.venv/
+venv/
+*.pcap_demux/
+*_demux/
+
+# Temporary / Generated runtime artifacts
+backend/uploads/
+backend/stored_results/
+backend/generated_reports/
+*.pcap
+*.pcapng
+*.pdf
+
+# Local environment overrides (keep these out of Git)
+.local.env
+.wireshark-paths.env
+.local-setup.sh
+setup-local.sh
+
+PART4_*.md
+
+CryptoLens_SIH_2026_Pitch_v3.md
