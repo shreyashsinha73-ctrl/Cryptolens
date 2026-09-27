@@ -2,33 +2,6 @@
   "dataset_version": "1.0",
   "captures": [
     {
-      "config_id": "config_01_tunnel_aes256gcm_dh19_pfson",
-      "pcap_file": "config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
-      "pcap_path": "captures/config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
-      "packet_count": 355,
-      "size_bytes": 124334,
-      "sha256": "a2a66da24b1f6366dd1af0a2af21fd5172d583ff8906cefc61ae5782792ddc20",
-      "ground_truth": {
-        "mode": "tunnel",
-        "cipher": "aes256gcm16",
-        "integrity": "aes256gcm16",
-        "prf": "prfsha256",
-        "dh_group": "ecp256",
-        "dh_group_num": 19,
-        "pfs": true,
-        "ike_version": 2,
-        "rekey_time": "3600s",
-        "traffic_type": "all",
-        "replay_protection_verified": true,
-        "benchmark_scores": {
-          "c_score": 1.0,
-          "k_score": 1.0,
-          "m_score": 1.0,
-          "compliance": "NIST SP 800-77 Rev 1 / CNSA 2.0 Compliant"
-        }
-      }
-    },
-    {
       "config_id": "config_02_tunnel_aes128gcm_dh14_pfson",
       "pcap_file": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
       "pcap_path": "captures/config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
@@ -160,6 +133,33 @@
           "k_score": 0.0,
           "m_score": 0.6,
           "compliance": "Critical Vulnerability (Deprecated Cryptosuite)"
+        }
+      }
+    },
+    {
+      "config_id": "config_01_tunnel_aes256gcm_dh19_pfson",
+      "pcap_file": "config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
+      "pcap_path": "captures/config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
+      "packet_count": 590,
+      "size_bytes": 128374,
+      "sha256": "935b56ffa0adaf34195d88102ce77d54eae2c5a83d6a9733bc00c112c8a6c97e",
+      "ground_truth": {
+        "mode": "tunnel",
+        "cipher": "aes256gcm16",
+        "integrity": "aes256gcm16",
+        "prf": "prfsha256",
+        "dh_group": "ecp256",
+        "dh_group_num": 19,
+        "pfs": true,
+        "ike_version": 2,
+        "rekey_time": "3600s",
+        "traffic_type": "all",
+        "replay_protection_verified": true,
+        "benchmark_scores": {
+          "c_score": 1.0,
+          "k_score": 1.0,
+          "m_score": 1.0,
+          "compliance": "NIST SP 800-77 Rev 1 / CNSA 2.0 Compliant"
         }
       }
     }
