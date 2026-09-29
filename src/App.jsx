@@ -29,7 +29,7 @@ const EmptyState = ({ onUploadPcap, uploading }) => {
         No Analysis Yet
       </h2>
       <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mb-8 leading-relaxed">
-        <strong></strong> <strong></strong> 
+        <strong></strong> <strong></strong>
       </p>
       <input
         type="file"
@@ -44,11 +44,10 @@ const EmptyState = ({ onUploadPcap, uploading }) => {
       <button
         onClick={() => fileRef.current?.click()}
         disabled={uploading}
-        className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-xs cursor-pointer ${
-          uploading
+        className={`inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-xs cursor-pointer ${uploading
             ? 'bg-blue-400/50 text-white animate-pulse'
             : 'bg-blue-600 hover:bg-blue-700 text-white'
-        }`}
+          }`}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
@@ -79,24 +78,40 @@ function MainSocApp() {
   const [activeJobId, setActiveJobId] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [uploadError, setUploadError] = useState(null);
+  const [ingesting, setIngesting] = useState(false);
 
   // Poll backend for job status
   useEffect(() => {
     if (!activeJobId) return;
     let subscribed = true;
-    const interval = setInterval(async () => {
+
+    const fetchStatus = async () => {
       try {
         const res = await fetch(`/api/v1/results/${activeJobId}`);
         if (res.ok) {
           const payload = await res.json();
           if (payload.status === 'completed') {
-            if (subscribed) { setAnalysisResult(payload); setUploading(false); clearInterval(interval); }
+            if (subscribed) { setAnalysisResult(payload); setUploading(false); }
+            return true; // indicates we should stop polling
           } else if (payload.status === 'failed') {
-            if (subscribed) { setUploadError(payload.error?.message || 'Analysis failed'); setUploading(false); clearInterval(interval); }
+            if (subscribed) { setUploadError(payload.error?.message || 'Analysis failed'); setUploading(false); }
+            return true;
           }
         }
       } catch (e) { console.error('Poll error:', e); }
-    }, 1500);
+      return false;
+    };
+
+    let interval;
+    fetchStatus().then(shouldStop => {
+      if (!shouldStop && subscribed) {
+        interval = setInterval(async () => {
+          const stop = await fetchStatus();
+          if (stop) clearInterval(interval);
+        }, 1500);
+      }
+    });
+
     return () => { subscribed = false; clearInterval(interval); };
   }, [activeJobId]);
 
@@ -111,14 +126,55 @@ function MainSocApp() {
       if (!res.ok) {
         let msg = 'Failed to submit PCAP for analysis';
         try { const e = await res.json(); msg = e.detail?.message || e.detail || e.message || msg; }
-        catch { msg = res.status === 502 || res.status === 504
-          ? 'Backend API unreachable (502). Run: .venv/bin/python -m uvicorn backend.main:app --port 8000'
-          : `Server error ${res.status}`; }
+        catch {
+          msg = res.status === 502 || res.status === 504
+            ? 'Backend API unreachable (502). Run: .venv/bin/python -m uvicorn backend.main:app --port 8000'
+            : `Server error ${res.status}`;
+        }
         throw new Error(msg);
       }
       const { job_id } = await res.json();
       setActiveJobId(job_id);
     } catch (e) { setUploadError(e.message); setUploading(false); }
+  };
+
+  const handleIngestTestbed = async () => {
+    setIngesting(true);
+    setUploadError(null);
+    try {
+      const res = await fetch('/api/v1/capture/ingest', { method: 'POST' });
+      if (!res.ok) {
+        let msg = 'Failed to ingest testbed captures';
+        try { const e = await res.json(); msg = e.detail?.message || e.detail || e.message || msg; }
+        catch { msg = `Server error ${res.status}`; }
+        throw new Error(msg);
+      }
+      const payload = await res.json();
+      if ((payload.succeeded > 0 || payload.skipped > 0) && payload.results) {
+        const successfulResults = payload.results.filter(r => r.status === 'completed' || r.status === 'already_ingested');
+        if (successfulResults.length > 0) {
+          // Cycle to the next PCAP using the most up-to-date previous state
+          setActiveJobId(prevJobId => {
+            let nextIndex = 0;
+            if (prevJobId) {
+              const currentIndex = successfulResults.findIndex(r => r.job_id === prevJobId);
+              if (currentIndex !== -1) {
+                nextIndex = (currentIndex + 1) % successfulResults.length;
+              }
+            }
+            return successfulResults[nextIndex].job_id;
+          });
+        } else {
+          throw new Error('No captures were successfully ingested.');
+        }
+      } else {
+        throw new Error(payload.message || 'No captures were successfully ingested.');
+      }
+    } catch (e) {
+      setUploadError(e.message);
+    } finally {
+      setIngesting(false);
+    }
   };
 
   const handleDownloadReport = () => {
@@ -137,30 +193,30 @@ function MainSocApp() {
 
     risk_level: analysisResult.summary?.risk_level || (
       analysisResult.threat_matrix?.some(f => f.severity === 'CRITICAL') ? 'CRITICAL' :
-      analysisResult.threat_matrix?.some(f => f.severity === 'HIGH') ? 'HIGH' :
-      analysisResult.threat_matrix?.some(f => f.severity === 'MEDIUM') ? 'MODERATE' : 'LOW'
+        analysisResult.threat_matrix?.some(f => f.severity === 'HIGH') ? 'HIGH' :
+          analysisResult.threat_matrix?.some(f => f.severity === 'MEDIUM') ? 'MODERATE' : 'LOW'
     ),
     nist_status:
       analysisResult.compliance?.standards?.NIST_SP_800_77_R1?.overall_status || 'NOT_ASSESSED',
     sub_scores: {
-      cipher_strength:    (analysisResult.score_breakdown?.encryption?.score ?? 0) / (analysisResult.score_breakdown?.encryption?.max_score || 25),
-      key_exchange:       (analysisResult.score_breakdown?.key_exchange?.score ?? 0) / (analysisResult.score_breakdown?.key_exchange?.max_score || 15),
-      mode_pfs:           (analysisResult.score_breakdown?.pfs?.score ?? 0) / (analysisResult.score_breakdown?.pfs?.max_score || 10),
-      metadata_exposure:  (analysisResult.score_breakdown?.ike_version?.score ?? 0) / (analysisResult.score_breakdown?.ike_version?.max_score || 10),
-      pqc_readiness:      analysisResult.control_plane?.dh_group === 19 ? 1.0 : (analysisResult.control_plane?.dh_group ? 0.0 : 0.0),
+      cipher_strength: (analysisResult.score_breakdown?.encryption?.score ?? 0) / (analysisResult.score_breakdown?.encryption?.max_score || 25),
+      key_exchange: (analysisResult.score_breakdown?.key_exchange?.score ?? 0) / (analysisResult.score_breakdown?.key_exchange?.max_score || 15),
+      mode_pfs: (analysisResult.score_breakdown?.pfs?.score ?? 0) / (analysisResult.score_breakdown?.pfs?.max_score || 10),
+      metadata_exposure: (analysisResult.score_breakdown?.ike_version?.score ?? 0) / (analysisResult.score_breakdown?.ike_version?.max_score || 10),
+      pqc_readiness: analysisResult.control_plane?.dh_group === 19 ? 1.0 : (analysisResult.control_plane?.dh_group ? 0.0 : 0.0),
     },
 
     traffic_distribution:
       analysisResult.data_plane?.detected_traffic || [],
-    
+
     tunnels: [{
-      id:             activeJobId,
-      status:         analysisResult.summary?.risk_level === 'HIGH' || analysisResult.summary?.risk_level === 'CRITICAL' ? 'critical' : 'active',
-      encryption:     analysisResult.control_plane?.encryption_algorithm || 'Unknown',
-      dh_group:       analysisResult.control_plane?.dh_group || 'N/A',
-      pfs_enabled:    analysisResult.control_plane?.pfs_enabled ?? false,
-      inferred_mode:  analysisResult.control_plane?.operating_mode || 'Tunnel',
-      inner_traffic:  analysisResult.data_plane?.detected_traffic?.[0]?.traffic_type || 'N/A',
+      id: activeJobId,
+      status: analysisResult.summary?.risk_level === 'HIGH' || analysisResult.summary?.risk_level === 'CRITICAL' ? 'critical' : 'active',
+      encryption: analysisResult.control_plane?.encryption_algorithm || 'Unknown',
+      dh_group: analysisResult.control_plane?.dh_group || 'N/A',
+      pfs_enabled: analysisResult.control_plane?.pfs_enabled ?? false,
+      inferred_mode: analysisResult.control_plane?.operating_mode || 'Tunnel',
+      inner_traffic: analysisResult.data_plane?.detected_traffic?.[0]?.traffic_type || 'N/A',
     }],
     threat_matrix: analysisResult.threat_matrix || [],
     cnsa_status:
@@ -173,12 +229,12 @@ function MainSocApp() {
     },
   } : null;
 
-  const totalAlerts    = data?.threat_matrix?.length ?? 0;
+  const totalAlerts = data?.threat_matrix?.length ?? 0;
   const criticalAlerts = data?.threat_matrix?.filter(f => f.severity === 'CRITICAL').length ?? 0;
-  const mediumAlerts   = data?.threat_matrix?.filter(f => f.severity === 'MEDIUM').length ?? 0;
-  const lowAlerts      = data?.threat_matrix?.filter(f => f.severity === 'LOW').length ?? 0;
+  const mediumAlerts = data?.threat_matrix?.filter(f => f.severity === 'MEDIUM').length ?? 0;
+  const lowAlerts = data?.threat_matrix?.filter(f => f.severity === 'LOW').length ?? 0;
 
-  const showEmpty     = !uploading && !isRealData;
+  const showEmpty = !uploading && !isRealData;
   const showAnalysing = uploading && !isRealData;
 
   return (
@@ -197,6 +253,8 @@ function MainSocApp() {
             onToggleSidebar={() => setSidebarOpen(p => !p)}
             onUploadPcap={handleUploadPcap}
             uploading={uploading}
+            onIngestTestbed={handleIngestTestbed}
+            ingesting={ingesting}
             activeJobId={activeJobId}
             onDownloadReport={handleDownloadReport}
             isRealData={isRealData}
