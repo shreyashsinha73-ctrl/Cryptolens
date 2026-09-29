@@ -163,6 +163,10 @@ class IkeParser:
                     elif t == 5:
                         esn = (i == 1)
 
+                pfs_val = False if ike_version == "IKEv1" else True
+                lifetime_val = 86400 if ike_version == "IKEv1" else 28800
+                esn_val = False if ike_version == "IKEv1" else esn
+
                 return {
                     "parsed_successfully": True,
                     "engine_used": "tshark",
@@ -173,9 +177,9 @@ class IkeParser:
                         "integrity_algorithm": integ,
                         "dh_group": dh,
                         "prf_algorithm": prf,
-                        "pfs_enabled": True,
-                        "key_lifetime_seconds": 28800,
-                        "replay_protection_enabled": esn
+                        "pfs_enabled": pfs_val,
+                        "key_lifetime_seconds": lifetime_val,
+                        "replay_protection_enabled": esn_val
                     }
                 }
         return None
@@ -238,8 +242,9 @@ class IkeParser:
                             "integrity_algorithm": parsed_sa.get("integrity", best_control_plane["integrity_algorithm"]),
                             "dh_group": parsed_sa.get("dh_group", best_control_plane["dh_group"]),
                             "prf_algorithm": parsed_sa.get("prf", best_control_plane["prf_algorithm"]),
+                            "pfs_enabled": parsed_sa.get("pfs", False) if major_version == 1 else best_control_plane["pfs_enabled"],
                             "key_lifetime_seconds": parsed_sa.get("lifetime_seconds", 28800),
-                            "replay_protection_enabled": parsed_sa.get("esn", True)
+                            "replay_protection_enabled": parsed_sa.get("esn", False if major_version == 1 else True)
                         })
 
                 payload_data = payload_data[p_len:]
@@ -334,12 +339,70 @@ class IkeParser:
                     break
 
         elif version == 1:
-            # IKEv1 Proposal parsing (Basic fallback)
+            # IKEv1 Proposal parsing (RFC 2409 / RFC 2407)
             result["encryption"] = "3DES"
-            result["integrity"] = "HMAC-MD5-96"
+            result["integrity"] = "HMAC-SHA1-96"
             result["dh_group"] = 2
+            result["prf"] = "PRF_HMAC_SHA1"
             result["lifetime_seconds"] = 86400
             result["esn"] = False
+            result["pfs"] = False
+
+            try:
+                # ISAKMP SA payload: DOI (4B) + Situation (4B) = 8B header
+                if len(sa_bytes) >= 8:
+                    pos = 8
+                    while pos + 8 <= len(sa_bytes):
+                        np_prop, _, prop_len, p_num, proto_id, spi_sz, num_t = struct.unpack("!BBHBBBB", sa_bytes[pos:pos+8])
+                        if prop_len < 8:
+                            break
+                        t_pos = pos + 8 + spi_sz
+                        prop_end = pos + prop_len
+                        for _ in range(num_t):
+                            if t_pos + 8 > prop_end:
+                                break
+                            np_t, _, t_len, t_num, t_id, _ = struct.unpack("!BBHBBH", sa_bytes[t_pos:t_pos+8])
+                            if t_len < 8:
+                                break
+                            attr_pos = t_pos + 8
+                            t_end = t_pos + t_len
+                            key_len = None
+                            while attr_pos + 4 <= t_end:
+                                af_type, val_or_len = struct.unpack("!HH", sa_bytes[attr_pos:attr_pos+4])
+                                is_basic = bool(af_type & 0x8000)
+                                attr_type = af_type & 0x7FFF
+                                if is_basic:
+                                    val = val_or_len
+                                    attr_pos += 4
+                                else:
+                                    v_len = val_or_len
+                                    attr_pos += 4
+                                    if attr_pos + v_len <= t_end and v_len <= 8:
+                                        val = int.from_bytes(sa_bytes[attr_pos:attr_pos+v_len], "big")
+                                    else:
+                                        val = 0
+                                    attr_pos += v_len
+                                if attr_type == 1:  # Encryption Algorithm
+                                    ikev1_enc = {1: "DES", 2: "IDEA", 3: "Blowfish", 4: "RC5", 5: "3DES", 7: "AES-CBC"}
+                                    result["encryption"] = ikev1_enc.get(val, f"ENCR-{val}")
+                                elif attr_type == 2:  # Hash Algorithm
+                                    ikev1_hash = {1: "HMAC-MD5-96", 2: "HMAC-SHA1-96", 4: "HMAC-SHA2-256", 5: "HMAC-SHA2-384", 6: "HMAC-SHA2-512"}
+                                    result["integrity"] = ikev1_hash.get(val, f"HASH-{val}")
+                                elif attr_type == 4:  # Group Description
+                                    result["dh_group"] = DH_GROUP_MAP.get(val, val)
+                                elif attr_type in (11, 12):  # Life Duration
+                                    result["lifetime_seconds"] = val
+                                elif attr_type == 14:  # Key Length
+                                    key_len = val
+
+                            if key_len and result.get("encryption") == "AES-CBC":
+                                result["encryption"] = f"AES-CBC-{key_len}"
+                            t_pos += t_len
+                        pos += prop_len
+                        if np_prop == 0:
+                            break
+            except Exception:
+                pass
 
         return result
 

@@ -7,16 +7,28 @@ Generates synthetic .npz feature files with the SAME schema feature_extract.py
 produces, so you can run dataset.py -> train.py end-to-end *today*, before
 Stage 1 (testbed) and Stage 2 (capture/demux) hand you real ESP pcaps.
 
-The synthetic signal deliberately encodes the two structural facts the
-project doc claims are learnable:
-- Tunnel mode packets are ~20-40 bytes larger than Transport mode
-  (outer IP header + ESP overhead).
-- VoIP is small-packet/periodic, HTTPS is larger/bursty-ish, ICMP is
-  small/sparse with irregular gaps.
+Signal design (F-02 v2 fix):
+------------------------------
+The synthetic packet lengths now match the actual frame.len distribution
+observed in the 6 strongSwan testbed captures:
 
-This is NOT a substitute for real traffic - it exists purely to prove the
-feature_extract -> dataset -> cnn_model -> train wiring is correct before
-you spend testbed time. Delete or ignore once real captures are flowing.
+  Tunnel mode (n=248):
+    min=122, p25=122, p75=270, max=1514, mean=312, std=360
+    The captures contain bimodal traffic: small ICMP pings (122B) +
+    large iperf/wget data frames (up to 1514B).
+
+  Transport mode (n=249):
+    min=102, p25=102, p75=262, max=1510, mean=325, std=395
+    Identical bimodal structure but with ~20B smaller floor (no outer IP).
+
+The tunnel/transport discriminator is specifically the lower-percentile floor
+(tunnel floor ~122, transport floor ~102, delta ~20B). Jitter on the small
+cluster must be << 20B to preserve this signal.  Large data frames carry no
+mode signal (both modes hit MTU), so they are modelled with high jitter.
+
+This is NOT a substitute for real traffic. It exists to validate the
+feature_extract -> dataset -> cnn_model -> train wiring before real captures
+are available. Once real captures flow, retrain with feature_extract.py output.
 """
 
 import argparse
@@ -27,36 +39,72 @@ import numpy as np
 
 from feature_extract import MODE_CLASSES, SEQ_LEN, TRAFFIC_CLASSES
 
-# Rough per-traffic-type packet size / timing profiles (synthetic, not measured).
+# ---------------------------------------------------------------------------
+# Realistic frame.len distributions from testbed captures (frame.len includes
+# Ethernet header, IP header, ESP header, and payload).
+#
+# Each profile is a bimodal mixture:
+#   - small cluster: control/ICMP/ACK packets
+#   - large cluster: data frames (iperf/wget)
+# ---------------------------------------------------------------------------
+
+# Tunnel overhead: outer-IP (20B) + ESP header/trailer (~18B avg) = ~38B
+# Transport no outer-IP, just ESP header/trailer (~18B avg)
+TUNNEL_FLOOR = 122    # min observed tunnel frame (84B ICMP + 38B tunnel overhead)
+TRANSPORT_FLOOR = 102 # min observed transport frame (84B ICMP + 18B ESP overhead)
+FLOOR_JITTER = 3      # ±3 bytes -- must be < half of (122-102=20) delta
+
+# Data-frame cluster (bimodal high end)
+DATA_BASE = 900
+DATA_JITTER = 350     # high jitter OK here -- large frames carry no mode signal
+
+# Per-traffic-type IAT (timing used for traffic-type discrimination, not mode)
 TRAFFIC_PROFILES = {
-    "https": {"base_len": 1200, "len_jitter": 60, "iat_mean": 0.02, "iat_jitter": 0.015},
-    "voip":  {"base_len": 200,  "len_jitter": 15, "iat_mean": 0.02, "iat_jitter": 0.003},
-    "icmp":  {"base_len": 84,   "len_jitter": 4,  "iat_mean": 0.5,  "iat_jitter": 0.4},
+    "https": {"iat_mean": 0.010, "iat_jitter": 0.012, "large_prob": 0.55},
+    "voip":  {"iat_mean": 0.020, "iat_jitter": 0.002, "large_prob": 0.15},
+    "icmp":  {"iat_mean": 0.500, "iat_jitter": 0.350, "large_prob": 0.05},
 }
-# NOTE on jitter values: the project doc's claimed Tunnel/Transport signature is a
-# small, near-constant per-packet size offset (~20-40 bytes) added by the outer
-# IP/ESP headers. If per-packet length jitter is comparable to or larger than that
-# offset (as a first draft of this generator had it), the offset is buried in noise
-# for any session short enough that it doesn't average out - that's a property of
-# the data, not the model. Real strongSwan captures should have tighter per-flow
-# length distributions than this synthetic jitter models, but if your real accuracy
-# on mode detection comes out low, this confound (traffic-type size variance
-# swamping the mode offset) is the first thing to check, e.g. via a per-traffic-type
-# breakdown of the mode confusion matrix.
-
-TUNNEL_OVERHEAD_BYTES = 30  # midpoint of the doc's ~20-40 byte delta
 
 
-def make_session(config_id: str, traffic_type: str, mode: str, run_idx: int, seq_len: int, rng: random.Random):
+def _packet_length(mode: str, traffic_type: str, rng: random.Random) -> float:
+    """Sample one packet length, faithful to the real bimodal distribution."""
     profile = TRAFFIC_PROFILES[traffic_type]
-    n_packets = rng.randint(seq_len // 2, seq_len)  # some sessions shorter than seq_len, on purpose
+    floor = TUNNEL_FLOOR if mode == "tunnel" else TRANSPORT_FLOOR
+
+    if rng.random() < profile["large_prob"]:
+        # Large data frame (goes up to MTU ~1514)
+        base = DATA_BASE + rng.gauss(0, DATA_JITTER)
+        length = min(1514.0, max(float(floor) + 50, base))
+        # Add tunnel overhead to large frames too
+        if mode == "tunnel":
+            length = min(1514.0, length + rng.gauss(38, 4))
+    else:
+        # Small control/ICMP packet -- the mode discriminator lives here
+        length = floor + rng.gauss(0, FLOOR_JITTER)
+        length = max(float(floor), length)
+
+    return length
+
+
+def make_session(
+    config_id: str,
+    traffic_type: str,
+    mode: str,
+    run_idx: int,
+    seq_len: int,
+    rng: random.Random,
+):
+    profile = TRAFFIC_PROFILES[traffic_type]
+
+    # Minimum session length 2/3 of seq_len so the model sees enough packets
+    # for the floor shift to be statistically visible.
+    min_packets = max(seq_len * 2 // 3, 10)
+    n_packets = rng.randint(min_packets, seq_len)
 
     lengths = np.array(
-        [max(40, profile["base_len"] + rng.gauss(0, profile["len_jitter"])) for _ in range(n_packets)],
+        [_packet_length(mode, traffic_type, rng) for _ in range(n_packets)],
         dtype=np.float32,
     )
-    if mode == "tunnel":
-        lengths += TUNNEL_OVERHEAD_BYTES
 
     iats = [0.0] + [
         max(0.0005, profile["iat_mean"] + rng.gauss(0, profile["iat_jitter"]))
@@ -89,7 +137,12 @@ def make_session(config_id: str, traffic_type: str, mode: str, run_idx: int, seq
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("output_dir")
-    ap.add_argument("--configs", type=int, default=6, help="Number of synthetic configs (cfg01..cfgNN)")
+    ap.add_argument(
+        "--configs",
+        type=int,
+        default=6,
+        help="Number of synthetic config IDs (cfg01..cfgNN)",
+    )
     ap.add_argument("--runs-per-combo", type=int, default=10)
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
@@ -103,8 +156,12 @@ def main():
         for mode in MODE_CLASSES:
             for traffic_type in TRAFFIC_CLASSES:
                 for run_idx in range(args.runs_per_combo):
-                    session = make_session(config_id, traffic_type, mode, run_idx, SEQ_LEN, rng)
-                    out_path = os.path.join(args.output_dir, f"{session['session_id']}.npz")
+                    session = make_session(
+                        config_id, traffic_type, mode, run_idx, SEQ_LEN, rng
+                    )
+                    out_path = os.path.join(
+                        args.output_dir, f"{session['session_id']}.npz"
+                    )
                     np.savez(out_path, **session)
                     count += 1
 

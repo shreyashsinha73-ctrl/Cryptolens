@@ -27,7 +27,7 @@ VALID_TRAFFIC_TYPES = {"https", "voip", "icmp", "unknown"}
 BACKEND_LLM = "llm"
 BACKEND_CNN = "cnn"
 
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 DEFAULT_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0"))
 
 
@@ -69,9 +69,13 @@ def _extract_sequences(esp_features: Dict[str, Any]) -> tuple[list, list, int]:
 _ONNX_SESSION = None
 _NORM_MEAN = None
 _NORM_STD = None
+# F-05: calibration data loaded from metrics.json (per-class F1 from validation set).
+# Used to cap raw softmax confidence so reported confidence reflects actual accuracy.
+_MODE_CALIBRATION: list[float] = []    # index matches mode_classes order
+_TRAFFIC_CALIBRATION: list[float] = [] # index matches traffic_classes order
 
 def _get_onnx_session():
-    global _ONNX_SESSION, _NORM_MEAN, _NORM_STD
+    global _ONNX_SESSION, _NORM_MEAN, _NORM_STD, _MODE_CALIBRATION, _TRAFFIC_CALIBRATION
     if _ONNX_SESSION is None:
         try:
             import onnxruntime as ort
@@ -96,11 +100,29 @@ def _get_onnx_session():
                 meta = json.load(f)
             _NORM_MEAN = np.array(meta.get("normalization_mean", [362.43, 0.13]), dtype=np.float32).reshape(1, 2, 1)
             _NORM_STD = np.array(meta.get("normalization_std", [450.83, 0.25]), dtype=np.float32).reshape(1, 2, 1)
+
+            # F-05: read per-class F1 from validation report to calibrate confidence.
+            # metrics.json stores sklearn classification_report output_dict=True.
+            # Keys are the class labels (e.g. 'transport', 'tunnel', 'https', etc.).
+            mode_report = meta.get("mode_report", {})
+            traffic_report = meta.get("traffic_report", {})
+            _MODE_CALIBRATION = [
+                float(mode_report.get(cls, {}).get("f1-score", 1.0))
+                for cls in ["transport", "tunnel"]
+            ]
+            _TRAFFIC_CALIBRATION = [
+                float(traffic_report.get(cls, {}).get("f1-score", 1.0))
+                for cls in ["https", "voip", "icmp"]
+            ]
         else:
             _NORM_MEAN = np.array([362.43, 0.13], dtype=np.float32).reshape(1, 2, 1)
             _NORM_STD = np.array([450.83, 0.25], dtype=np.float32).reshape(1, 2, 1)
+            # No metrics.json: no calibration ceiling, pass through raw softmax.
+            _MODE_CALIBRATION = []
+            _TRAFFIC_CALIBRATION = []
 
     return _ONNX_SESSION, _NORM_MEAN, _NORM_STD
+
 
 def _classify_via_cnn(esp_features: Dict[str, Any]) -> Dict[str, Any]:
     import numpy as np
@@ -133,14 +155,27 @@ def _classify_via_cnn(esp_features: Dict[str, Any]) -> Dict[str, Any]:
 
     pred_mode = mode_classes[mode_idx]
     pred_traffic = traffic_classes[traffic_idx]
-    mode_conf = float(mode_probs[mode_idx])
-    traffic_conf = float(traffic_probs[traffic_idx])
+    raw_mode_conf = float(mode_probs[mode_idx])
+    raw_traffic_conf = float(traffic_probs[traffic_idx])
+
+    # F-05: cap raw softmax confidence by the per-class F1 from the validation set.
+    # This prevents the model from reporting "95% confident" when its held-out F1
+    # on that class was only 0.60. The capped value is the honest upper bound.
+    if _MODE_CALIBRATION and mode_idx < len(_MODE_CALIBRATION):
+        mode_conf = round(min(raw_mode_conf, _MODE_CALIBRATION[mode_idx]), 2)
+    else:
+        mode_conf = round(raw_mode_conf, 2)
+
+    if _TRAFFIC_CALIBRATION and traffic_idx < len(_TRAFFIC_CALIBRATION):
+        traffic_conf = round(min(raw_traffic_conf, _TRAFFIC_CALIBRATION[traffic_idx]), 2)
+    else:
+        traffic_conf = round(raw_traffic_conf, 2)
 
     return {
         "mode": pred_mode,
-        "mode_confidence": round(mode_conf, 2),
+        "mode_confidence": mode_conf,
         "traffic_type": pred_traffic,
-        "traffic_confidence": round(traffic_conf, 2),
+        "traffic_confidence": traffic_conf,
         "backend": BACKEND_CNN,
     }
 

@@ -117,6 +117,16 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
     # 1. If ESP packets are present, classify the encrypted data-plane stream
     if esp_packet_sizes:
         esp_count = len(esp_packet_sizes)
+        sorted_sizes = sorted(esp_packet_sizes)
+        
+        # Compute distribution statistics for classification
+        avg_overall = sum(esp_packet_sizes) / esp_count
+        min_size = sorted_sizes[0]
+        p10 = sorted_sizes[max(0, esp_count // 10)]
+        p25 = sorted_sizes[max(0, esp_count // 4)]
+        median_size = sorted_sizes[esp_count // 2]
+        p75 = sorted_sizes[max(0, 3 * esp_count // 4)]
+        max_size = sorted_sizes[-1]
         
         # Classify by packet size distribution (S_L)
         voip_sizes = [s for s in esp_packet_sizes if s < 250]
@@ -146,20 +156,72 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         # Sort descending by packet count
         detected_traffic.sort(key=lambda x: x["packet_count"], reverse=True)
 
-        # Heuristic mode prediction: size delta analysis
-        # In tunnel mode, outer IP header (20 bytes) adds overhead
-        avg_overall = sum(esp_packet_sizes) / esp_count
-        heuristic_mode = "tunnel" if avg_overall > 200 else "transport"
+        # ── Heuristic mode prediction ──
+        # Tunnel mode wraps the entire original packet inside a new IP header,
+        # adding ~20-40 bytes of overhead.  Key discriminators:
+        #   1. Minimum / lower-percentile sizes are higher in tunnel mode
+        #      (ICMP ping = ~84 bytes transport → ~104+ tunnel)
+        #   2. Median shifts up by the tunnel overhead
+        #
+        # Empirical thresholds calibrated from testbed captures:
+        #   Tunnel:    min ≥ 120, p10 ≥ 120, median ≥ 155
+        #   Transport: min < 115, p10 < 115, median < 148
+        tunnel_signals = 0
+        transport_signals = 0
         
-        # Heuristic traffic prediction: based on predominant size category
-        if voip_sizes and (len(voip_sizes) / esp_count) > 0.5:
-            heuristic_traffic = "voip"
-        elif web_sizes and (len(web_sizes) / esp_count) > 0.4:
-            heuristic_traffic = "https"
-        elif video_sizes and (len(video_sizes) / esp_count) > 0.3:
-            heuristic_traffic = "https"  # Treat video as https for simplicity
+        # Signal 1: Floor size — tunnel adds minimum ~16-20 bytes
+        if min_size >= 120:
+            tunnel_signals += 2
+        elif min_size <= 110:
+            transport_signals += 2
         else:
-            heuristic_traffic = "icmp"  # Default fallback
+            tunnel_signals += 1  # Ambiguous range
+        
+        # Signal 2: Lower-percentile analysis
+        if p10 >= 120:
+            tunnel_signals += 1
+        elif p10 <= 110:
+            transport_signals += 1
+        
+        # Signal 3: Median size shift
+        if median_size >= 155:
+            tunnel_signals += 2
+        elif median_size <= 145:
+            transport_signals += 2
+        else:
+            tunnel_signals += 1
+        
+        # Signal 4: P25 — consistent overhead visible in lower quartile
+        if p25 >= 130:
+            tunnel_signals += 1
+        elif p25 <= 115:
+            transport_signals += 1
+        
+        heuristic_mode = "tunnel" if tunnel_signals > transport_signals else "transport"
+        
+        logger.debug(
+            f"Heuristic signals: tunnel={tunnel_signals}, transport={transport_signals} "
+            f"(min={min_size}, p10={p10}, p25={p25}, median={median_size})"
+        )
+        
+        # ── Heuristic traffic prediction ──
+        # Use size distribution shape and presence of large packets:
+        #   - VoIP: mostly small uniform packets (<250), few or no large packets
+        #   - HTTPS: bimodal — many small ACKs + large data segments (>600)
+        #   - ICMP: all very small (<150)
+        large_pct = (len(web_sizes) + len(video_sizes)) / esp_count
+        small_pct = len(voip_sizes) / esp_count
+        
+        if max_size < 200 and median_size < 150:
+            heuristic_traffic = "icmp"
+        elif large_pct >= 0.15:
+            # Significant fraction of large packets → web/HTTPS traffic
+            heuristic_traffic = "https"
+        elif small_pct > 0.7 and max_size < 600:
+            heuristic_traffic = "voip"
+        else:
+            # Mixed traffic — likely HTTPS with small ACKs
+            heuristic_traffic = "https"
         
         heuristic_confidence = min(0.98, max(0.65, 0.70 + (esp_count / 10000.0) * 0.25))
 
@@ -172,7 +234,7 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
             if ts == ts
         ]
 
-        for i in range(1, min(len(valid_timestamps), 30)):
+        for i in range(1, min(len(valid_timestamps), 100)):
             iat = (
                 valid_timestamps[i]
                 - valid_timestamps[i - 1]
@@ -185,11 +247,11 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         
         logger.info(
             f"Calling inference pipeline: {esp_count} ESP packets, "
-            f"{len(esp_packet_sizes[:30])} for API, heuristic={heuristic_mode}/{heuristic_traffic}"
+            f"{min(len(esp_packet_sizes), 100)} for API, heuristic={heuristic_mode}/{heuristic_traffic}"
         )
         
         agreement_result = infer_with_fallback(
-            packet_lengths=esp_packet_sizes[:30],
+            packet_lengths=esp_packet_sizes[:100],
             inter_arrival_times=inter_arrival_times,
             packet_count=esp_count,
             heuristic_mode=heuristic_mode,
@@ -199,7 +261,7 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         if agreement_result:
             api_mode = agreement_result.api_mode_prediction
             api_traffic = agreement_result.api_traffic_prediction
-            agreement_flag = agreement_result.overall_agreement
+            agreement_flag = agreement_result.mode_agreement
             confidence = agreement_result.api_avg_confidence
             
             if api_mode == "unknown":

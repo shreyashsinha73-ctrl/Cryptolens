@@ -1,5 +1,5 @@
 # CryptoLens IPsec Configuration Matrix
-# Ground-truth configurations for the 6 core testbed scenarios
+# Ground-truth configurations for the 7 core testbed scenarios
 # Mapped to SIH 2026 Pitch v3 & Project Breakdown standards
 
 schema_version: "1.0"
@@ -136,3 +136,36 @@ configurations:
       m_score: 0.60
       compliance: "Critical Vulnerability (Deprecated Cryptosuite)"
     description: "Weak legacy tunnel mode configuration designed to test automated detection of broken cryptographic suites (3DES, SHA-1, DH Group 2) under tunnel encapsulation."
+
+  # ─── IKEv1 config: exercises the IKEv1 native-binary parsing path (§2.3 Flag F-01) ───
+  - id: "config_07_tunnel_ikev1_3des_sha1_dh2_pfsoff"
+    name: "Legacy IKEv1 Tunnel (3DES + SHA1 + DH2 + PFS OFF — Main Mode)"
+    mode: "tunnel"
+    ike_version: 1
+    cipher: "3des"
+    integrity: "sha1"
+    prf: "prfsha1"
+    dh_group: "modp1024"
+    dh_group_num: 2
+    pfs: false
+    rekey_time: "86400s"
+    ike_proposals: "3des-sha1-modp1024"
+    esp_proposals: "3des-sha1"
+    benchmark_scores:
+      c_score: 0.00
+      k_score: 0.00
+      m_score: 0.60
+      compliance: "Critical Vulnerability (IKEv1 Deprecated, Sweet32 3DES, DH1024 breakable, PFS Off)"
+    description: >-
+      IKEv1 Main Mode tunnel using 3DES, SHA-1 and DH Group 2. Included specifically
+      to exercise and validate the IKEv1 control-plane parsing path (§2.3 test plan
+      requirement). IKEv1 is deprecated by NIST SP 800-77 Rev 1.
+    test_notes:
+      ikev1_path_covered: true
+      aggressive_mode: false
+      note: >-
+        This config exercises the IKEv1 native parser branch. If no real IKEv1
+        strongSwan tunnel is available, use a pre-captured IKEv1 PCAP from the
+        Wireshark sample captures library (e.g. isakmp-delete.pcap) to validate
+        that the parser detects version=1 and returns the correct AST without
+        applying IKEv2 payload parsing logic.

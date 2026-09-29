@@ -1,23 +1,23 @@
 {
   "metadata": {
     "total_pcaps": 6,
-    "api_calls_successful": 0,
-    "api_calls_failed": 6,
-    "timestamp": "2026-09-27T06:24:43.014593+00:00"
+    "api_calls_successful": 6,
+    "api_calls_failed": 0,
+    "timestamp": "2026-09-29T05:10:40.954791+00:00"
   },
   "api_vs_ground_truth": {
     "mode": {
-      "accuracy": 0.0,
-      "f1_macro": 0.0,
+      "accuracy": 1.0,
+      "f1_macro": 0.667,
       "confusion_matrix": {
         "tunnel": {
-          "tunnel": 0,
+          "tunnel": 4,
           "transport": 0,
           "unknown": 0
         },
         "transport": {
           "tunnel": 0,
-          "transport": 0,
+          "transport": 2,
           "unknown": 0
         },
         "unknown": {
@@ -26,7 +26,7 @@
           "unknown": 0
         }
       },
-      "total_samples": 0
+      "total_samples": 6
     },
     "traffic": {
       "accuracy": 0.0,
@@ -36,7 +36,7 @@
           "https": 0,
           "voip": 0,
           "icmp": 0,
-          "unknown": 0
+          "unknown": 6
         },
         "voip": {
           "https": 0,
@@ -57,20 +57,20 @@
           "unknown": 0
         }
       },
-      "total_samples": 0,
+      "total_samples": 6,
       "note": "Traffic type inference not yet extracted; placeholder values"
     }
   },
   "heuristic_vs_api": {
-    "mode_agreement_rate": 0.0,
+    "mode_agreement_rate": 0.833,
     "note": "Measured when both heuristic and API produce non-null predictions"
   },
   "confidence_stats": {
     "mode": {
-      "mean": 0.0,
-      "min": 0.0,
-      "max": 0.0,
-      "count": 0
+      "mean": 0.9216666666666665,
+      "min": 0.88,
+      "max": 0.93,
+      "count": 6
     }
   }
 }

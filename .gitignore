@@ -45,7 +45,7 @@ backend/generated_reports/
 # Local environment overrides (keep these out of Git)
 .local.env
 .wireshark-paths.env
-.local-setup.sh
+.local-setup.sh 
 setup-local.sh
 
 PART4_*.md

@@ -20,13 +20,13 @@ from backend.capture.pcap_utils import (
 
 
 IKE_DISPLAY_FILTER = (
-    "(ike || isakmp || udp.port == 500 || "
-    "(udp.port == 4500 && (ike || isakmp || (data.data[0:4] == 00:00:00:00))))"
+    "(isakmp || udp.port == 500 || "
+    "(udp.port == 4500 && (isakmp || (data.data[0:4] == 00:00:00:00))))"
 )
 
 ESP_DISPLAY_FILTER = (
     "(esp || ip.proto == 50 || ipv6.nxt == 50 || "
-    "(udp.port == 4500 && !ike && !isakmp && data.data[0:4] != 00:00:00:00))"
+    "(udp.port == 4500 && !isakmp && data.data[0:4] != 00:00:00:00))"
 )
 
 

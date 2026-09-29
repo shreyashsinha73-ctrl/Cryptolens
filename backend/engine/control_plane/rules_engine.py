@@ -28,6 +28,9 @@ class RulesEngine:
         self.target_standard = target_standard.lower()
 
     def evaluate(self, control_plane: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        if control_plane and "control_plane" in control_plane and isinstance(control_plane["control_plane"], dict):
+            control_plane = control_plane["control_plane"]
+
         if not control_plane:
             return {
                 "summary": {
@@ -142,17 +145,28 @@ class RulesEngine:
             })
             vuln_counter += 1
 
-        # 6. SA Key Lifetime Check (Addresses PS gap #148)
-        if lifetime > 28800:
-            penalty += 10
-            threat_matrix.append({
-                "id": f"VULN-{vuln_counter:03d}",
-                "severity": "LOW",
-                "category": "Key Lifetime",
-                "title": f"Excessive SA Lifetime: {lifetime} seconds",
-                "description": "Security Association lifetime exceeds NIST recommended 8-hour / 28800-second rekey threshold, increasing key-exposure windows."
-            })
-            vuln_counter += 1
+        # 6. SA Key Lifetime Check (Addresses PS gap #148 and Flag F-03)
+        if lifetime is not None:
+            if lifetime < 60:
+                penalty += 10
+                threat_matrix.append({
+                    "id": f"VULN-{vuln_counter:03d}",
+                    "severity": "MEDIUM",
+                    "category": "Key Lifetime",
+                    "title": f"Implausible SA Lifetime: {lifetime} seconds",
+                    "description": "Security Association lifetime is below minimum sane threshold (60s), indicating corrupted or adversarial input."
+                })
+                vuln_counter += 1
+            elif lifetime > 28800:
+                penalty += 10
+                threat_matrix.append({
+                    "id": f"VULN-{vuln_counter:03d}",
+                    "severity": "LOW",
+                    "category": "Key Lifetime",
+                    "title": f"Excessive SA Lifetime: {lifetime} seconds",
+                    "description": "Security Association lifetime exceeds NIST recommended 8-hour / 28800-second rekey threshold, increasing key-exposure windows."
+                })
+                vuln_counter += 1
 
         # 7. Anti-Replay Protection Check
         if not esn:

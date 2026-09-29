@@ -13,6 +13,7 @@ Generates metrics_report.json with detailed breakdown.
 import argparse
 import json
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -152,6 +153,9 @@ def validate_dataset(dataset_dir: Path, verbose: bool = False) -> Dict[str, Any]
                     f"  → API: {api_mode} (conf={api_confidence:.2f}), "
                     f"Heuristic: {heuristic_mode}, Agreement: {agreement_flag}"
                 )
+
+            # Polite pause to stay within free-tier API rate limits
+            time.sleep(3)
 
         except Exception as e:
             logger.error(f"Error processing {pcap_path.name}: {e}")

@@ -12,6 +12,7 @@ import ScoreDial from './components/ScoreDial.jsx';
 import AnalysisDimensions from './components/dashboard/AnalysisDimensions.jsx';
 import ComplianceRadar from './components/dashboard/ComplianceRadar.jsx';
 import TrafficDistribution from './components/dashboard/TrafficDistribution.jsx';
+import AiTelemetryCard from './components/dashboard/AiTelemetryCard.jsx';
 
 // ── Empty state shown before any PCAP is uploaded ──────────────────────────
 const EmptyState = ({ onUploadPcap, uploading }) => {
@@ -162,6 +163,14 @@ function MainSocApp() {
       inner_traffic:  analysisResult.data_plane?.detected_traffic?.[0]?.traffic_type || 'N/A',
     }],
     threat_matrix: analysisResult.threat_matrix || [],
+    cnsa_status:
+      analysisResult.compliance?.standards?.CNSA_2_0?.overall_status || 'NOT_ASSESSED',
+    ai_metrics: {
+      confidence_score: analysisResult.data_plane?.ai_confidence_score ?? 0.0,
+      heuristic_agreement: analysisResult.data_plane?.agreement_flag ?? false,
+      predicted_mode: analysisResult.data_plane?.llm_mode_prediction || analysisResult.data_plane?.heuristic_mode_prediction || 'unknown',
+      replay_confirmed: analysisResult.control_plane?.replay_protection_enabled ?? true,
+    },
   } : null;
 
   const totalAlerts    = data?.threat_matrix?.length ?? 0;
@@ -256,6 +265,70 @@ function MainSocApp() {
               <AnalysingState jobId={activeJobId} />
             ) : (
               <div className="space-y-6">
+                {/* Fallback Banner (Segment 8): Visible when control plane is absent */}
+                {isRealData && !analysisResult?.control_plane && (
+                  <div className="bg-amber-500/10 border-2 border-amber-500/40 text-amber-700 dark:text-amber-300 px-5 py-3.5 rounded-2xl text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-3">
+                      <span className="w-3 h-3 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                      <div>
+                        <span className="font-black uppercase tracking-wider text-[11px] block">
+                          ⚠ Control-Plane Handshake Unavailable (Mid-Session Capture)
+                        </span>
+                        <span className="font-medium text-amber-600 dark:text-amber-400 text-[11px]">
+                          Deterministic IKE parser bypassed. Operating mode & inner traffic inferred from encrypted ESP data plane via local 1D CNN classifier.
+                        </span>
+                      </div>
+                    </div>
+                    <span className="bg-amber-500/20 text-amber-700 dark:text-amber-300 px-3 py-1 rounded-lg text-[10px] uppercase font-black tracking-wider shrink-0 self-start sm:self-center">
+                      AI Inference Fallback Engaged
+                    </span>
+                  </div>
+                )}
+
+                {/* Tunnel Connection & Live Negotiated Parameters Bar (Segments 3 & 5) */}
+                {isRealData && (
+                  <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-3 w-3 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                      </span>
+                      <div>
+                        <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Live IPsec Tunnel Status
+                        </div>
+                        <div className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                          TUNNEL ACTIVE &amp; AUDITED
+                          <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-[#202228] px-2 py-0.5 rounded font-bold">
+                            {activeJobId}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                      <div className="bg-gray-100 dark:bg-[#23252A] px-3 py-1.5 rounded-xl border border-gray-200 dark:border-[#2A2C34]">
+                        <span className="text-gray-500 dark:text-gray-400 text-[10px] block uppercase font-bold">Cipher</span>
+                        <span className="font-bold text-blue-600 dark:text-blue-400">{data.tunnels[0]?.encryption}</span>
+                      </div>
+                      <div className="bg-gray-100 dark:bg-[#23252A] px-3 py-1.5 rounded-xl border border-gray-200 dark:border-[#2A2C34]">
+                        <span className="text-gray-500 dark:text-gray-400 text-[10px] block uppercase font-bold">Key Exchange</span>
+                        <span className="font-bold text-purple-600 dark:text-purple-400">DH Group {data.tunnels[0]?.dh_group}</span>
+                      </div>
+                      <div className="bg-gray-100 dark:bg-[#23252A] px-3 py-1.5 rounded-xl border border-gray-200 dark:border-[#2A2C34]">
+                        <span className="text-gray-500 dark:text-gray-400 text-[10px] block uppercase font-bold">Forward Secrecy</span>
+                        <span className={`font-bold ${data.tunnels[0]?.pfs_enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                          {data.tunnels[0]?.pfs_enabled ? 'PFS ON' : 'PFS OFF'}
+                        </span>
+                      </div>
+                      <div className="bg-gray-100 dark:bg-[#23252A] px-3 py-1.5 rounded-xl border border-gray-200 dark:border-[#2A2C34]">
+                        <span className="text-gray-500 dark:text-gray-400 text-[10px] block uppercase font-bold">Mode</span>
+                        <span className="font-bold text-amber-600 dark:text-amber-400">{data.tunnels[0]?.inferred_mode}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Row 1: Metric cards */}
                 <SocMetricCards
                   totalAlerts={totalAlerts}
@@ -266,13 +339,19 @@ function MainSocApp() {
                   riskLevel={data.risk_level}
                 />
 
-                {/* Row 2: Score + Dimensions */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Row 2: Score Dial, Analysis Dimensions, Compliance Radar, AI Telemetry */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs flex items-center justify-center">
-                    <ScoreDial overall_score={data.overall_score} risk_level={data.risk_level}  nist_status={data.nist_status} />
+                    <ScoreDial overall_score={data.overall_score} risk_level={data.risk_level} nist_status={data.nist_status} />
+                  </div>
+                  <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs">
+                    <AnalysisDimensions sub_scores={data.sub_scores} />
                   </div>
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs">
                     <ComplianceRadar sub_scores={data.sub_scores} />
+                  </div>
+                  <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs">
+                    <AiTelemetryCard ai_metrics={data.ai_metrics} />
                   </div>
                 </div>
 

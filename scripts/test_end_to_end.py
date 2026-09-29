@@ -127,8 +127,18 @@ def run_integration_test():
 
     compliance = ComplianceEngine()
     comp_result = compliance.evaluate(analysis_input)
-    print(f"[+] NIST SP 800-77:     {comp_result.get('nist_sp800_77', {}).get('status', 'EVALUATED')}")
-    print(f"[+] NSA CNSA 2.0:       {comp_result.get('nsa_cnsa_2_0', {}).get('status', 'EVALUATED')}")
+    # F-06 fix: compliance engine returns keys under comp_result['standards'][<standard_id>]
+    standards = comp_result.get("standards", {})
+    nist_entry = standards.get("NIST_SP_800_77_R1", {})
+    cnsa_entry = standards.get("CNSA_2_0", {})
+    nist_status  = nist_entry.get("overall_status", "NOT_EVALUATED")
+    cnsa_status  = cnsa_entry.get("overall_status", "NOT_EVALUATED")
+    print(f"[+] NIST SP 800-77:     {nist_status}")
+    print(f"[+] NSA CNSA 2.0:       {cnsa_status}")
+    if nist_status == "NOT_EVALUATED":
+        print("[-] WARNING: NIST SP 800-77 compliance status could not be read — check ComplianceEngine output schema")
+    if cnsa_status == "NOT_EVALUATED":
+        print("[-] WARNING: NSA CNSA 2.0 compliance status could not be read — check ComplianceEngine output schema")
 
     print("\n" + "=" * 70)
     print(" ALL PIPELINE STAGES INTEGRATED AND VERIFIED SUCCESSFULLY!")

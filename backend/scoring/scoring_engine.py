@@ -140,6 +140,27 @@ class ScoringEngine:
             })
             return 0.0
 
+        # F-03 fix: reject physically impossible lifetimes (< 60 s) as invalid.
+        # A negative or near-zero value indicates corrupted/adversarial input and
+        # must NOT pass as 'valid' just because it satisfies `<= max_seconds`.
+        MIN_SANE_SECONDS = 60
+        if lifetime < MIN_SANE_SECONDS:
+            findings.append({
+                "severity": "MEDIUM",
+                "finding_id": "INVALID_KEY_LIFETIME",
+                "title": f"Implausible SA Lifetime: {lifetime} seconds",
+                "description": (
+                    f"The configured key lifetime ({lifetime}s) is below the minimum "
+                    f"sane threshold of {MIN_SANE_SECONDS}s. This indicates corrupted, "
+                    "adversarial, or mis-configured input data. A score of 0 is awarded "
+                    "to avoid falsely inflating the security score."
+                ),
+                "category": "Key Lifetime",
+                "observed_value": lifetime,
+                "source": "compliance_map.yaml"
+            })
+            return 0.0
+
         val = "valid" if lifetime <= max_seconds else "invalid"
 
         return self._evaluate_param("key_lifetime", val, findings)
