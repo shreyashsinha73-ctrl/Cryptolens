@@ -12,6 +12,7 @@ import logging
 import subprocess
 import time
 import queue
+import uuid
 from collections import deque
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -47,6 +48,7 @@ _anomaly_detector = AnomalyDetector()
 _scoring_engine = ScoringEngine()
 _compliance_engine = ComplianceEngine()
 _cached_control_plane: Optional[Dict[str, Any]] = None
+_current_stream_id: Optional[str] = None
 
 
 def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List[Dict[str, Any]]:
@@ -219,6 +221,7 @@ def _analyze_window_for_anomalies(
             current_pkt["is_replay"] = True
             return {
                 "type": "anomaly_alert",
+                "stream_id": _current_stream_id,
                 "anomaly_label": "REPLAY_ATTACK",
                 "anomaly_score": 0.985,
                 "severity": "CRITICAL",
@@ -275,6 +278,7 @@ def _analyze_window_for_anomalies(
 
             return {
                 "type": "anomaly_alert",
+                "stream_id": _current_stream_id,
                 "anomaly_label": label.upper(),
                 "anomaly_score": res.get("anomaly_score", 0.85),
                 "severity": severity,
@@ -292,6 +296,8 @@ def _analyze_window_for_anomalies(
                     "anomaly_reason": reason,
                     "severity": severity,
                 },
+                "feature_zscores": contributions,
+                "feature_contributions": contributions,
                 "top_features": top_feats,
             }
 
@@ -337,7 +343,7 @@ async def _telemetry_flusher(flush_interval: float = 0.15):
     Batched flusher that consumes from bounded _telemetry_queue every 100-250ms
     and broadcasts batches over WebSocket. Prevents event-loop task starvation.
     """
-    global _sniffer
+    global _sniffer, _current_stream_id
     recent_pkts = deque(maxlen=30)
     seen_seqs: Dict[str, int] = {}
     lengths_win: List[float] = []
@@ -350,6 +356,7 @@ async def _telemetry_flusher(flush_interval: float = 0.15):
             while len(batch) < 500:
                 try:
                     pkt = _telemetry_queue.get_nowait()
+                    pkt["stream_id"] = _current_stream_id
                     batch.append(pkt)
                 except queue.Empty:
                     break
@@ -370,6 +377,7 @@ async def _telemetry_flusher(flush_interval: float = 0.15):
                 # Send batched telemetry to connected clients
                 await ws_manager.broadcast({
                     "type": "telemetry_batch",
+                    "stream_id": _current_stream_id,
                     "events": batch,
                     "count": len(batch),
                 })
@@ -432,10 +440,17 @@ async def start_live_capture(interface: str = Query(default="any")):
     Uses bounded thread-safe queue and batched flusher for non-blocking cross-thread telemetry.
     Thread-safe and idempotent under concurrent calls via _lifecycle_lock.
     """
-    global _sniffer, _flusher_task, _inference_task
+    global _sniffer, _flusher_task, _inference_task, _current_stream_id
 
     async with _lifecycle_lock:
         await _stop_all_active_internal()
+        _current_stream_id = str(uuid.uuid4())
+        await ws_manager.broadcast({
+            "type": "stream_started",
+            "stream_id": _current_stream_id,
+            "mode": "live",
+            "interface": interface,
+        })
 
         _sniffer = LiveSniffer(interface=interface)
 
@@ -449,6 +464,7 @@ async def start_live_capture(interface: str = Query(default="any")):
         def on_esp(record: ESPPacketRecord):
             pkt_dict = {
                 "type": "esp_event",
+                "stream_id": _current_stream_id,
                 "frame_number": record.frame_number,
                 "packet_type": "ESP (Encrypted)",
                 "protocol": "ESP",
@@ -472,6 +488,7 @@ async def start_live_capture(interface: str = Query(default="any")):
         def on_ike(record: IKEPacketRecord):
             pkt_dict = {
                 "type": "ike_event",
+                "stream_id": _current_stream_id,
                 "frame_number": record.frame_number,
                 "packet_type": "IKE Handshake",
                 "protocol": "IKE",
@@ -498,16 +515,20 @@ async def start_live_capture(interface: str = Query(default="any")):
 
         _flusher_task = asyncio.create_task(_telemetry_flusher())
         _inference_task = asyncio.create_task(_rolling_inference_loop())
-        return {"status": "started", "interface": interface}
+        return {"status": "started", "interface": interface, "stream_id": _current_stream_id}
 
 
 @router.post("/api/v1/live/stop")
 async def stop_live_capture():
     """Stop the real-time packet sniffer, simulation, or active injection."""
+    global _current_stream_id
     async with _lifecycle_lock:
         stopped = await _stop_all_active_internal()
-        await ws_manager.broadcast({"type": "stream_stopped"})
-        return {"status": "stopped" if stopped else "not_running"}
+        await ws_manager.broadcast({
+            "type": "stream_stopped",
+            "stream_id": _current_stream_id,
+        })
+        return {"status": "stopped" if stopped else "not_running", "stream_id": _current_stream_id}
 
 
 @router.get("/api/v1/live/status")
@@ -529,7 +550,7 @@ async def inject_traffic(profile: str):
       - 'hardened': AES-256-GCM, DH 19, PFS ON, monotonic sequence numbers.
       - 'vulnerable': 3DES-CBC, DH 2, PFS OFF, Sweet32 64-bit alignment, and duplicate sequence Replay Attacks.
     """
-    global _injection_task
+    global _injection_task, _current_stream_id
 
     profile_norm = profile.lower()
     if profile_norm not in ("hardened", "vulnerable", "attack", "weak"):
@@ -537,13 +558,21 @@ async def inject_traffic(profile: str):
 
     async with _lifecycle_lock:
         await _stop_all_active_internal()
-        _injection_task = asyncio.create_task(_run_injection_task(profile_norm))
-        return {"status": "injection_started", "profile": profile_norm}
+        _current_stream_id = str(uuid.uuid4())
+        await ws_manager.broadcast({
+            "type": "stream_started",
+            "stream_id": _current_stream_id,
+            "mode": "injection",
+            "profile": profile_norm,
+        })
+        _injection_task = asyncio.create_task(_run_injection_task(profile_norm, _current_stream_id))
+        return {"status": "injection_started", "profile": profile_norm, "stream_id": _current_stream_id}
 
 
-async def _run_injection_task(profile: str):
+async def _run_injection_task(profile: str, stream_id: Optional[str] = None):
     """Broadcasts injected packets in realistic real-time pacing with anomaly localization."""
     logger.info(f"Starting traffic injection for profile: {profile}")
+    sid = stream_id or _current_stream_id
     packets = get_injection_profile(profile, count=30)
     recent_pkts = deque(maxlen=30)
     seen_seqs: Dict[str, int] = {}
@@ -558,6 +587,7 @@ async def _run_injection_task(profile: str):
             iat = max(0.0, now - last_ts)
             last_ts = now
             pkt["timestamp"] = now
+            pkt["stream_id"] = sid
 
             # Tag severity
             if pkt.get("is_replay"):
@@ -583,12 +613,14 @@ async def _run_injection_task(profile: str):
             # Check for Replay Attack duplicate sequences or PyOD anomalies
             alert = _analyze_window_for_anomalies(recent_pkts, lengths_win, iats_win, seen_seqs)
             if alert:
+                alert["stream_id"] = sid
                 await ws_manager.broadcast(alert)
 
             # Every 5 packets, emit rolling score update
             if len(recent_pkts) % 5 == 0:
                 await ws_manager.broadcast({
                     "type": "rolling_score",
+                    "stream_id": sid,
                     "timestamp": now,
                     "esp_count": len([p for p in recent_pkts if p.get("protocol") == "ESP"]),
                     "ike_count": len([p for p in recent_pkts if p.get("protocol") == "IKE"]),
@@ -607,6 +639,7 @@ async def _run_injection_task(profile: str):
         # Notify completion
         await ws_manager.broadcast({
             "type": "stream_completed",
+            "stream_id": sid,
             "message": f"Injection completed: {len(packets)} frames processed.",
             "total_packets": len(packets),
         })
@@ -625,22 +658,30 @@ async def simulate_live_capture(
     Streams each genuine packet sequentially and stops automatically when the PCAP finishes.
     Thread-safe and idempotent under concurrent calls via _lifecycle_lock.
     """
-    global _simulation_task
+    global _simulation_task, _current_stream_id
 
     async with _lifecycle_lock:
         await _stop_all_active_internal()
         target_id = job_id or config_id or "config_01_tunnel_aes256gcm_dh19_pfson"
-        _simulation_task = asyncio.create_task(_run_simulation(target_id))
-        return {"status": "simulation_started", "job_id": target_id}
+        _current_stream_id = str(uuid.uuid4())
+        await ws_manager.broadcast({
+            "type": "stream_started",
+            "stream_id": _current_stream_id,
+            "mode": "simulation",
+            "job_id": target_id,
+        })
+        _simulation_task = asyncio.create_task(_run_simulation(target_id, _current_stream_id))
+        return {"status": "simulation_started", "job_id": target_id, "stream_id": _current_stream_id}
 
 
-async def _run_simulation(job_id: str):
+async def _run_simulation(job_id: str, stream_id: Optional[str] = None):
     """
     Continuous packet simulation for an uploaded PCAP or testbed capture.
     Streams each packet from the PCAP from frame 1 to the end, then automatically completes.
     Zero dummy or hardcoded IPs.
     """
     logger.info(f"Starting simulated stream for target: {job_id}")
+    sid = stream_id or _current_stream_id
 
     # 1. Resolve real PCAP file
     target_pcap = None
@@ -684,6 +725,7 @@ async def _run_simulation(job_id: str):
 
             stream_pkt = dict(raw_pkt)
             stream_pkt["timestamp"] = now
+            stream_pkt["stream_id"] = sid
 
             pkt_len = float(stream_pkt.get("packet_length", 162))
             lengths_window.append(pkt_len)
@@ -700,6 +742,7 @@ async def _run_simulation(job_id: str):
             # Check for protocol or statistical anomalies
             alert = _analyze_window_for_anomalies(recent_pkts, lengths_window, iats_window, seen_seqs)
             if alert:
+                alert["stream_id"] = sid
                 await ws_manager.broadcast(alert)
 
             # Periodic rolling score update
@@ -719,6 +762,7 @@ async def _run_simulation(job_id: str):
 
                 await ws_manager.broadcast({
                     "type": "rolling_score",
+                    "stream_id": sid,
                     "timestamp": now,
                     "esp_count": len([p for p in recent_pkts if p.get("protocol") == "ESP"]),
                     "ike_count": len([p for p in recent_pkts if p.get("protocol") == "IKE"]) or 2,
@@ -739,6 +783,7 @@ async def _run_simulation(job_id: str):
         logger.info(f"PCAP stream ended: {len(packets)} frames streamed.")
         await ws_manager.broadcast({
             "type": "stream_completed",
+            "stream_id": sid,
             "message": f"Simulation finished. All {len(packets)} packets in PCAP have been streamed.",
             "total_packets": len(packets),
         })
@@ -749,7 +794,7 @@ async def _run_simulation(job_id: str):
 
 async def _rolling_inference_loop():
     """Periodic rolling inference loop for the live sniffer."""
-    global _sniffer, _cached_control_plane
+    global _sniffer, _cached_control_plane, _current_stream_id
     while _sniffer is not None:
         await asyncio.sleep(2.0)
         if _sniffer is None:
@@ -779,11 +824,14 @@ async def _rolling_inference_loop():
                 if anomaly_res.get("is_anomaly"):
                     alert_payload = {
                         "type": "anomaly_alert",
+                        "stream_id": _current_stream_id,
                         "anomaly_label": str(anomaly_res.get("anomaly_label", "ANOMALY")).upper(),
                         "anomaly_score": float(anomaly_res.get("anomaly_score", 0.85)),
                         "severity": "CRITICAL" if anomaly_res.get("anomaly_label") in ("replay_attack", "sweet32_block_surface") else "MEDIUM",
                         "description": str(anomaly_res.get("description", "Flow anomaly detected in rolling window.")),
                         "timestamp": time.time(),
+                        "feature_zscores": anomaly_res.get("feature_contributions", {}),
+                        "feature_contributions": anomaly_res.get("feature_contributions", {}),
                         "top_features": {k: f"{v:+.2f}σ" for k, v in list(anomaly_res.get("feature_contributions", {}).items())[:3]},
                     }
                     await ws_manager.broadcast(alert_payload)
@@ -812,6 +860,7 @@ async def _rolling_inference_loop():
 
             payload = {
                 "type": "rolling_score",
+                "stream_id": _current_stream_id,
                 "timestamp": time.time(),
                 "esp_count": _sniffer.state.total_esp_count,
                 "ike_count": _sniffer.state.total_ike_count,

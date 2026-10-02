@@ -73,7 +73,9 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
     return true;
   });
 
-  const displayedWire = sortOrder === 'desc' ? [...filteredWire].reverse() : filteredWire;
+  const MAX_DOM_ROWS = 300;
+  const orderedWire = sortOrder === 'desc' ? [...filteredWire].reverse() : filteredWire;
+  const displayedWire = orderedWire.slice(0, MAX_DOM_ROWS);
 
   return (
     <Card
@@ -226,6 +228,87 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
               )
             }
           />
+        </div>
+      )}
+
+      {/* Active Protocol & Statistical Anomaly Alerts Panel */}
+      {anomalyAlerts && anomalyAlerts.length > 0 && (
+        <div className="rounded-xl border border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10 p-4 space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-rose-500/20">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+              <span className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                Active Protocol &amp; Statistical Anomalies ({anomalyAlerts.length})
+              </span>
+            </div>
+            <span className="text-[10px] text-gray-500 font-mono">PyOD Isolation Forest &amp; RFC 4303 Anti-Replay Guard</span>
+          </div>
+
+          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            {anomalyAlerts.slice(-6).reverse().map((alert, aIdx) => (
+              <div
+                key={aIdx}
+                className="p-3 rounded-lg bg-white dark:bg-[#1E2530] border border-rose-500/30 text-xs space-y-1.5 shadow-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
+                        alert.severity === 'CRITICAL' ? 'bg-red-500 text-white' : 'bg-amber-500 text-gray-950 font-bold'
+                      }`}
+                    >
+                      {alert.severity || 'MEDIUM'}
+                    </span>
+                    <span className="font-mono font-bold text-gray-900 dark:text-white">
+                      {alert.anomaly_label || 'TRAFFIC_ANOMALY'}
+                    </span>
+                    {alert.anomaly_score !== undefined && (
+                      <span className="text-[10px] text-gray-400 font-mono">
+                        (score: {typeof alert.anomaly_score === 'number' ? alert.anomaly_score.toFixed(3) : alert.anomaly_score})
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-gray-400 font-mono">
+                    {formatTimestamp(alert.timestamp)}
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
+                  {alert.description}
+                </p>
+
+                {/* Culprit Packet Metadata */}
+                {alert.culprit_packet && (
+                  <div className="text-[10px] font-mono bg-gray-50 dark:bg-[#141A23] p-1.5 rounded border border-gray-200 dark:border-gray-800 flex items-center gap-2.5 flex-wrap text-gray-600 dark:text-gray-300">
+                    <span className="font-bold text-blue-500">Culprit Frame #{alert.culprit_packet.frame_number}</span>
+                    {alert.culprit_packet.spi && <span>SPI: {alert.culprit_packet.spi}</span>}
+                    {alert.culprit_packet.seq_num !== undefined && alert.culprit_packet.seq_num !== null && (
+                      <span>Seq: #{alert.culprit_packet.seq_num}</span>
+                    )}
+                    {alert.culprit_packet.packet_length && <span>Len: {alert.culprit_packet.packet_length}B</span>}
+                    {alert.culprit_packet.anomaly_reason && (
+                      <span className="text-rose-500">({alert.culprit_packet.anomaly_reason})</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Feature Z-Scores / Deviations */}
+                {(alert.feature_zscores || alert.top_features) && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    <span className="text-[10px] uppercase font-bold text-gray-400">Feature Deviations:</span>
+                    {Object.entries(alert.top_features || alert.feature_zscores || {}).slice(0, 4).map(([fKey, fVal]) => (
+                      <span
+                        key={fKey}
+                        className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-gray-100 dark:bg-[#252D3B] text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
+                      >
+                        {fKey.replace(/_/g, ' ')}: <strong className="text-amber-500">{typeof fVal === 'number' ? `${fVal.toFixed(2)}σ` : fVal}</strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -505,6 +588,11 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
                 </div>
               );
             })
+          )}
+          {orderedWire.length > MAX_DOM_ROWS && (
+            <div className="text-[11px] font-mono text-gray-500 dark:text-gray-400 py-2 text-center bg-gray-900/50 rounded-lg border border-gray-800">
+              Displaying {MAX_DOM_ROWS} of {orderedWire.length} matching frames. Use order toggle (Frame #1 vs Newest) or filters to inspect other frames.
+            </div>
           )}
         </div>
       </div>

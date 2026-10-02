@@ -61,15 +61,18 @@ export default function ThreatHeatmap({ jobId }) {
             <div className="flex gap-1 h-10 items-end p-2 bg-gray-900 rounded-lg">
               {xaiData.xai_heatmap?.map((val, idx) => {
                 const n = Math.min(1, Math.max(0.05, val));
+                const wireFrame = xaiData.frame_mapping?.[idx] ?? (idx + 1);
                 return (
                   <div key={idx} className="flex-1 rounded-t-sm transition-all hover:scale-110 cursor-pointer"
                     style={{ height: `${Math.max(n * 100, 10)}%`, backgroundColor: `rgb(${Math.round(n*230+25)},${Math.round((1-n)*180+30)},40)` }}
-                    title={`Frame ${idx+1}: ${val.toFixed(3)}`} />
+                    title={`Wire Frame #${wireFrame} (Sequence #${idx+1}): Relative Saliency ${val.toFixed(3)}`} />
                 );
               })}
             </div>
             <div className="flex justify-between text-[10px] text-gray-400 mt-1 font-mono">
-              <span>Frame 1</span><span>Frame 15</span><span>Frame 30</span>
+              <span>{xaiData.frame_mapping?.[0] ? `Wire #${xaiData.frame_mapping[0]}` : 'Frame 1'}</span>
+              <span>{xaiData.frame_mapping?.[Math.floor((xaiData.frame_mapping.length || 30) / 2)] ? `Wire #${xaiData.frame_mapping[Math.floor((xaiData.frame_mapping.length || 30) / 2)]}` : 'Frame 15'}</span>
+              <span>{xaiData.frame_mapping?.[xaiData.frame_mapping.length - 1] ? `Wire #${xaiData.frame_mapping[xaiData.frame_mapping.length - 1]}` : `Frame ${xaiData.xai_heatmap?.length || 30}`}</span>
             </div>
           </div>
 

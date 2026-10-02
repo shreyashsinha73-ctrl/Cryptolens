@@ -113,6 +113,7 @@ def localize_threats(
         "threat_packets": threat_packets[:20],
         "xai_heatmap": heatmap,
         "relative_saliency": heatmap,
+        "frame_mapping": [r.frame_number for r in esp_records[:seq_len]],
         "raw_max_attribution": xai_result.get("raw_max_attribution", 1.0),
         "predicted_class": xai_result.get("predicted_class", "unknown"),
         "predicted_confidence": xai_result.get("predicted_confidence", 0.0),
