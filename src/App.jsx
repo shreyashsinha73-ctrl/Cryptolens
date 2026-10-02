@@ -415,7 +415,15 @@ function MainSocApp() {
                 {/* Row 2: Score Dial, Analysis Dimensions, Compliance Radar, AI Telemetry */}
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs flex items-center justify-center">
-                    <ScoreDial overall_score={data.overall_score} risk_level={data.risk_level} nist_status={data.nist_status} />
+                    <ScoreDial
+                      overall_score={data.overall_score}
+                      risk_level={data.risk_level}
+                      nist_status={data.nist_status}
+                      score_headline={data.score_headline}
+                      coverage={data.coverage}
+                      score_if_unobserved_fail={data.score_if_unobserved_fail}
+                      score_if_unobserved_pass={data.score_if_unobserved_pass}
+                    />
                   </div>
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-6 shadow-xs">
                     <AnalysisDimensions sub_scores={data.sub_scores} />

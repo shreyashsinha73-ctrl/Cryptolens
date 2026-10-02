@@ -43,6 +43,8 @@ RISK_LEVELS = {
     "MODERATE",
     "HIGH",
     "CRITICAL",
+    "UNVERIFIED",
+    "NOT_ASSESSED",
 }
 
 
@@ -356,10 +358,23 @@ def _build_cover(
         ("Job ID", _safe(result.get("job_id"))),
         ("Assessment Status", _safe(result.get("status")).upper()),
         (
-            "Risk Score",
-            f"{_format_score(summary.get('overall_security_score'))} / 100",
+            "Risk Score (Headline)",
+            summary.get("score_headline", f"{_format_score(summary.get('overall_security_score'))} / 100"),
         ),
         ("Risk Level", _risk_level(summary.get("risk_level"))),
+        ("Telemetry Coverage", summary.get("coverage", "N/A")),
+        (
+            "Worst-Case / Best-Case",
+            f"{_format_score(summary.get('score_if_unobserved_fail'))} / {_format_score(summary.get('score_if_unobserved_pass'))}"
+            if summary.get("score_if_unobserved_fail") is not None
+            else "N/A",
+        ),
+        (
+            "Observed-Only Score",
+            f"{_format_score(summary.get('score_observed_only'))} / 100"
+            if summary.get("score_observed_only") is not None
+            else "N/A",
+        ),
         (
             "AI Confidence",
             _format_score(
@@ -503,7 +518,8 @@ def _build_score_breakdown(
             _paragraph("Category", styles["table_header"]),
             _paragraph("Score", styles["table_header"]),
             _paragraph("Maximum", styles["table_header"]),
-            _paragraph("Utilization", styles["table_header"]),
+            _paragraph("Observability", styles["table_header"]),
+            _paragraph("Evidence Source", styles["table_header"]),
         ]
     ]
 
@@ -512,11 +528,8 @@ def _build_score_breakdown(
 
         score = item.get("score")
         maximum = item.get("max_score")
-
-        try:
-            utilization = f"{(float(score) / float(maximum)) * 100:.1f}%"
-        except (TypeError, ValueError, ZeroDivisionError):
-            utilization = "N/A"
+        obs = item.get("observability", "inferred")
+        ev_src = item.get("evidence_source", "testbed_config")
 
         data.append(
             [
@@ -530,7 +543,11 @@ def _build_score_breakdown(
                     styles["table_cell"],
                 ),
                 _paragraph(
-                    utilization,
+                    str(obs).upper(),
+                    styles["table_cell"],
+                ),
+                _paragraph(
+                    str(ev_src),
                     styles["table_cell"],
                 ),
             ]
@@ -544,10 +561,11 @@ def _build_score_breakdown(
         _styled_table(
             data,
             widths=[
-                65 * mm,
-                35 * mm,
-                35 * mm,
-                35 * mm,
+                42 * mm,
+                24 * mm,
+                24 * mm,
+                38 * mm,
+                42 * mm,
             ],
         ),
         Spacer(1, 5 * mm),

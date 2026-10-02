@@ -21,6 +21,8 @@ class ControlPlaneData(BaseModel):
     pfs_enabled: Optional[bool] = None
     key_lifetime_seconds: Optional[int] = None
     replay_protection_enabled: Optional[bool] = None
+    evidence_source: Optional[dict[str, str]] = None
+    observability: Optional[dict[str, str]] = None
 
 class TrafficItem(BaseModel):
     traffic_type: str
@@ -39,6 +41,8 @@ class DataPlaneData(BaseModel):
 class ScoreCategory(BaseModel):
     score: float = Field(..., ge=0.0)
     max_score: float = Field(..., gt=0.0)
+    observability: Optional[str] = None
+    evidence_source: Optional[str] = None
 
 
 class ScoreBreakdown(BaseModel):
@@ -92,6 +96,9 @@ class ThreatItem(BaseModel):
     description: str
     observed_value: Optional[Any] = None
     source: Optional[str] = None
+    evidence_source: Optional[str] = None
+    observability: Optional[str] = None
+    provenance: Optional[str] = None
 
 class SummaryData(BaseModel):
     overall_security_score: Optional[float] = Field(
@@ -100,6 +107,13 @@ class SummaryData(BaseModel):
         le=100.0
     )
     risk_level: str
+    score_observed_only: Optional[float] = None
+    score_if_unobserved_fail: Optional[float] = None
+    score_if_unobserved_pass: Optional[float] = None
+    score_headline: Optional[str] = None
+    coverage: Optional[str] = None
+    coverage_ratio: Optional[float] = None
+    confidence_label: Optional[str] = None
     ai_confidence_score: float = Field(..., ge=0.0, le=1.0)
     agreement_flag: bool
     processed_packets: int = Field(..., ge=0)

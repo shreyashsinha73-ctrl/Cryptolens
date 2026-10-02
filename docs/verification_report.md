@@ -257,5 +257,73 @@ Stage 5 in `scripts/test_v2_features.py` was updated to:
 - **Corrected Status (A5):** **PARTIAL**.
 - **Justification:** Stages 1–4 are fully VERIFIED on authentic testbed wire frames and PyTorch models. Stage 5 verified Python AST syntax parsing and cipher policy rules, but host kernel/daemon loading into `charon` was skipped due to the inactive `charon.vici` socket. With `--strict`, the script correctly and transparently fails.
 
+---
+
+## 6. Part 2 — "Unknown Must Not Score As Safe" & Wire Observability Verification
+
+### 6.1 Wire Observability Boundary & Taxonomy (Item 2.1)
+Under CryptoLens doctrine (*Zero Decryption, Zero Plaintext Access*), unobserved parameters must never score as safe. The system implements a 4-state observability taxonomy:
+- `observed`: Directly extracted from cleartext packets on the wire (e.g. IKEv2 `IKE_SA_INIT` Diffie-Hellman group and IKE version; ESP header sequence number / anti-replay; IKEv1 Phase 1 cleartext proposals).
+- `operator_supplied`: Explicitly provided by an administrator or auditor via a strictly validated sidecar configuration (`IPsecSidecarConfig`).
+- `inferred`: Deduced through traffic flow statistics or unencrypted protocol notification indicators (e.g. Tunnel vs. Transport mode).
+- `not_observable`: Encrypted on the wire and inaccessible without cryptographic keys (e.g. IKEv2 Child SA ESP symmetric ciphers, integrity algorithms, Child SA PFS, and SA lifetime).
+
+The engine computes `coverage` as verified controls over total scored controls ($|V|/|C|$) and assigns a `confidence_label` (`HIGH` for $8/8$, `MEDIUM` for $\ge 4/8$, `LOW` for $< 4/8$).
+
+### 6.2 Three-Score Range Formulation (Item 2.2)
+To prevent misleading single scores when evaluating partial wire telemetry:
+1. **Worst-Case Score (`score_if_unobserved_fail`):** Sum of points for verified controls; unobserved controls are assumed to have failed ($0$ points). This serves as the primary score.
+2. **Best-Case Score (`score_if_unobserved_pass`):** Sum of verified points plus full weight points for all unobserved controls.
+3. **Observed-Only Score (`score_observed_only`):** Percentage score normalized strictly across the verified control subset.
+
+**Policy Enforcement:**
+- Headline score is presented as a range: `"Score_worst–Score_best, coverage V/8"`, e.g. `"35–100, coverage 3/8"`.
+- Risk level is clamped to `UNVERIFIED` whenever unobserved controls exist without sidecar provenance.
+- Unqualified "100/100" is strictly prohibited when telemetry coverage is partial.
+- Applied across `ScoringEngine`, API payloads, executive/technical PDF reports, and the React `ScoreDial`.
+
+### 6.3 Strict Sidecar Configuration Schema (Item 2.3)
+Defined in `backend/schemas/sidecar.py` using Pydantic v2:
+- Model: `IPsecSidecarConfig` with `model_config = ConfigDict(extra="forbid")`.
+- Rejects unexpected/adversarial fields with validation error.
+- Enforces physical sanity constraints (e.g. `key_lifetime_seconds >= 60`).
+- Seamlessly accepts upload via `/analyze` (`sidecar: UploadFile` or `sidecar_json: Form`), or auto-loads adjacent `<pcap>.sidecar.json`.
+- Stamps ingested parameters with `evidence_source = "operator_supplied"` and `observability = "operator_supplied"`.
+
+### 6.4 Verification Test Suite & Raw Execution Output (Item 2.4)
+Implemented in `tests/test_p3_observability_scoring.py`:
+- `test_config_01_no_sidecar_partial_coverage`: Verifies raw `config_01` PCAP without sidecar produces `coverage: "3/8"`, `risk_level: "UNVERIFIED"`, `score_headline: "35–100, coverage 3/8"`, and primary score `35.0` (not 100).
+- `test_config_01_with_operator_sidecar_higher_coverage`: Verifies same capture with sidecar produces `coverage: "8/8"`, `risk_level: "LOW"`, `score_headline: "100/100, coverage 8/8"`, and labels fields `operator_supplied`.
+- `test_ikev1_cleartext_proposals_marked_observed`: Crafts synthetic authentic IKEv1 packet with 3DES/SHA1/DH2 proposal; verifies parser and scoring engine mark proposals as `observed` with `evidence_source: "ike_v1_cleartext"`.
+- `test_mutation_forcing_full_coverage_fails`: Mutation check proving that forcing coverage=100% or safe risk level without sidecar strictly fails the test assertion.
+- `test_strict_sidecar_schema_rejection`: Verifies schema rejection of injected unknown fields and physically implausible SA lifetimes (< 60s).
+
+```text
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/yugpo/Bauna-Appetite/Cryptolens
+configfile: pytest.ini
+collected 5 items
+
+tests/test_p3_observability_scoring.py::test_config_01_no_sidecar_partial_coverage PASSED [ 20%]
+tests/test_p3_observability_scoring.py::test_config_01_with_operator_sidecar_higher_coverage PASSED [ 40%]
+tests/test_p3_observability_scoring.py::test_ikev1_cleartext_proposals_marked_observed PASSED [ 60%]
+tests/test_p3_observability_scoring.py::test_mutation_forcing_full_coverage_fails PASSED [ 80%]
+tests/test_p3_observability_scoring.py::test_strict_sidecar_schema_rejection PASSED [100%]
+
+======================== 5 passed, 5 warnings in 15.47s ========================
+```
+
+### 6.5 Part 2 Status Table
+
+| Item | Requirement Description | Status | Evidence |
+|---|---|---|---|
+| **2.1** | Add observability taxonomy (`observed`, `inferred`, `operator_supplied`, `not_observable`) to every control & finding; compute coverage & confidence | **VERIFIED** | `backend/scoring/scoring_engine.py:33`, `backend/engine/control_plane/ike_parser.py:192`, `tests/test_p3_observability_scoring.py:53-64` |
+| **2.2** | Three-value scoring (`score_observed_only`, `score_if_unobserved_fail`, `score_if_unobserved_pass`), headline range, `UNVERIFIED` risk label on partial coverage | **VERIFIED** | `backend/scoring/scoring_engine.py:317-345`, `backend/reporting/generate_pdf.py:360-377`, `src/components/ScoreDial.jsx:157-170` |
+| **2.3** | Strict sidecar configuration schema (`IPsecSidecarConfig`, `extra="forbid"`), upload field and JSON ingestion, provenance tracking | **VERIFIED** | `backend/schemas/sidecar.py:5-23`, `backend/routes/analyze.py:110-140`, `backend/services/analyzer_provider.py:89-109` |
+| **2.4** | Tests that must be able to fail: (a) raw PCAP partial coverage; (b) PCAP + sidecar; (c) IKEv1 cleartext proposals; (d) mutation check; (e) strict schema rejection | **VERIFIED** | `tests/test_p3_observability_scoring.py` (5/5 PASSED, 15.47s) |
+| **2.5** | Add `docs/observability.md` defining protocol wire visibility boundaries; align dashboard, PDF, and demo scripts | **VERIFIED** | `docs/observability.md` (112 lines), `backend/reporting/generate_pdf.py:518-568`, `npm run build` (built in 876ms) |
+
+
 
 

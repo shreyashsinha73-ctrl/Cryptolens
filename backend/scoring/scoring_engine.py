@@ -1,6 +1,19 @@
-import yaml
 import os
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+import yaml
+
+CATEGORY_TO_FIELD = {
+    "encryption": "encryption_algorithm",
+    "integrity": "integrity_algorithm",
+    "key_exchange": "dh_group",
+    "pfs": "pfs_enabled",
+    "replay_protection": "replay_protection_enabled",
+    "key_lifetime": "key_lifetime_seconds",
+    "ike_version": "ike_version",
+    "mode": "operating_mode",
+}
+
 
 class ScoringEngine:
     def __init__(self):
@@ -12,48 +25,112 @@ class ScoringEngine:
         with open(base_dir / "compliance_map.yaml", "r") as f:
             self.rules = yaml.safe_load(f)
 
-    # Make sure category weights always add up to 100
+        # Make sure category weights always add up to 100
         total_weight = sum(self.weights.values())
-
         if total_weight != 100:
             raise ValueError(
                 f"Scoring weights must total 100, but got {total_weight}."
             )
 
-        
+    def _get_observability(self, category: str, control_plane: Optional[dict]) -> str:
+        """
+        Determine wire observability:
+        - 'observed': directly observed on the wire in cleartext
+        - 'operator_supplied': explicitly provided by operator sidecar
+        - 'inferred': deduced via statistical heuristics or notification payloads
+        - 'not_observable': encrypted on wire (e.g. IKEv2 Child SA ESP transforms)
+        """
+        if isinstance(control_plane, dict):
+            field_name = CATEGORY_TO_FIELD.get(category, category)
+            # Check explicit observability map
+            obs_map = control_plane.get("observability")
+            if isinstance(obs_map, dict):
+                if category in obs_map:
+                    return obs_map[category]
+                if field_name in obs_map:
+                    return obs_map[field_name]
+
+            # Check evidence_source for operator_supplied
+            ev_src = control_plane.get("evidence_source")
+            if isinstance(ev_src, dict):
+                if ev_src.get(category) == "operator_supplied" or ev_src.get(field_name) == "operator_supplied":
+                    return "operator_supplied"
+
+        # Protocol defaults if not explicitly stamped:
+        ike_v = str(control_plane.get("ike_version", "")).lower() if isinstance(control_plane, dict) else ""
+        if "1" in ike_v or "ikev1" in ike_v:
+            # IKEv1 RFC 2409: Phase 1 proposals are cleartext on wire
+            if category in ("ike_version", "key_exchange", "encryption", "integrity"):
+                return "observed"
+            elif category == "replay_protection":
+                return "observed"
+            elif category == "mode":
+                return "inferred"
+            else:
+                return "not_observable"
+        else:
+            # IKEv2 RFC 7296: Only IKE_SA_INIT is cleartext on wire
+            if category in ("ike_version", "key_exchange"):
+                return "observed"
+            elif category == "replay_protection":
+                return "observed"
+            elif category == "mode":
+                return "inferred"
+            else:
+                return "not_observable"
+
     def _get_evidence_source(self, category: str, value: Any, control_plane: Optional[dict]) -> str:
-        """
-        Determine authentic evidence provenance.
-        In IKEv2, only IKE_SA_INIT is cleartext on the wire.
-        Child SA ESP transforms and PFS are encrypted; they originate from testbed_config,
-        operator_supplied, or inferred statistics.
-        """
+        field_name = CATEGORY_TO_FIELD.get(category, category)
         if isinstance(control_plane, dict) and "evidence_source" in control_plane:
             src = control_plane["evidence_source"]
-            if isinstance(src, dict) and category in src:
-                return src[category]
+            if isinstance(src, dict):
+                if category in src:
+                    return src[category]
+                if field_name in src:
+                    return src[field_name]
             elif isinstance(src, str):
                 return src
 
-        if category == "ike_version":
-            return "ike_v1_cleartext" if str(value).lower() in ("ikev1", "1", "v1") else "ike_sa_init"
-        elif category == "key_exchange":
-            return "ike_sa_init"
-        elif category in ("encryption", "integrity", "pfs", "key_lifetime"):
-            ike_v = str(control_plane.get("ike_version", "")).lower() if isinstance(control_plane, dict) else ""
-            if "v1" in ike_v or "ikev1" in ike_v:
+        obs = self._get_observability(category, control_plane)
+        if obs == "operator_supplied":
+            return "operator_supplied"
+
+        ike_v = str(control_plane.get("ike_version", "")).lower() if isinstance(control_plane, dict) else ""
+        if "1" in ike_v or "ikev1" in ike_v:
+            if category in ("ike_version", "key_exchange", "encryption", "integrity"):
                 return "ike_v1_cleartext"
+            elif category == "replay_protection":
+                return "esp_header_metadata"
+            elif category == "mode":
+                return "traffic_statistics"
+            else:
+                return "inferred"
+        else:
+            if category in ("ike_version", "key_exchange"):
+                return "ike_sa_init"
+            elif category == "replay_protection":
+                return "esp_header_metadata"
+            elif category == "mode":
+                return "traffic_statistics"
             else:
                 return "testbed_config"
-        elif category == "replay_protection":
-            return "esp_header_metadata"
-        elif category == "mode":
-            return "traffic_statistics"
-        return "inferred"
+
+    def _get_provenance(self, obs: str, ev_src: str) -> str:
+        if obs == "operator_supplied":
+            return "Operator Sidecar"
+        elif obs == "observed":
+            return f"Wire Observation ({ev_src})"
+        elif obs == "inferred":
+            return f"Heuristic Inference ({ev_src})"
+        else:
+            return "Unobservable on Wire"
 
     def _evaluate_param(self, category: str, value, findings, control_plane: Optional[dict] = None):
+        obs = self._get_observability(category, control_plane)
+        ev_src = self._get_evidence_source(category, value, control_plane)
+        prov = self._get_provenance(obs, ev_src)
 
-         # Evidence was not available
+        # Evidence was not available
         if value is None:
             findings.append({
                 "severity": "INFO",
@@ -67,12 +144,13 @@ class ScoringEngine:
                 "category": category.replace("_", " ").title(),
                 "observed_value": None,
                 "source": "compliance_map.yaml",
-                "evidence_source": "inferred",
+                "observability": obs,
+                "evidence_source": ev_src,
+                "provenance": prov,
             })
             return 0.0
 
         rule_set = self.rules.get(category, {})
-
         rule = None
 
         for configured_value, configured_rule in rule_set.items():
@@ -94,11 +172,13 @@ class ScoringEngine:
                 "category": category.replace("_", " ").title(),
                 "observed_value": value,
                 "source": "compliance_map.yaml",
-                "evidence_source": "inferred",
+                "observability": obs,
+                "evidence_source": ev_src,
+                "provenance": prov,
             })
             return 0.0
-        raw_points = rule.get("awarded_points", 0)
 
+        raw_points = rule.get("awarded_points", 0)
         max_rule_points = max(
             (
                 rule_data.get("awarded_points", 0)
@@ -112,19 +192,17 @@ class ScoringEngine:
             return 0.0
 
         category_weight = self.weights.get(category, 0)
-
         awarded = (raw_points / max_rule_points) * category_weight
 
         finding = rule.get("finding")
-
         if finding:
             finding_copy = dict(finding)
-
             finding_copy["category"] = category.replace("_", " ").title()
             finding_copy["observed_value"] = value
             finding_copy["source"] = "compliance_map.yaml"
-            finding_copy["evidence_source"] = self._get_evidence_source(category, value, control_plane)
-
+            finding_copy["observability"] = obs
+            finding_copy["evidence_source"] = ev_src
+            finding_copy["provenance"] = prov
             findings.append(finding_copy)
 
         return awarded
@@ -158,8 +236,10 @@ class ScoringEngine:
 
     def evaluate_key_lifetime(self, control_plane, findings):
         lifetime = control_plane.get("key_lifetime_seconds")
-
         max_seconds = self.rules.get("key_lifetime", {}).get("max_seconds")
+        obs = self._get_observability("key_lifetime", control_plane)
+        ev_src = self._get_evidence_source("key_lifetime", lifetime, control_plane)
+        prov = self._get_provenance(obs, ev_src)
 
         if lifetime is None or max_seconds is None:
             findings.append({
@@ -170,7 +250,9 @@ class ScoringEngine:
                 "category": "Key Lifetime",
                 "observed_value": lifetime,
                 "source": "compliance_map.yaml",
-                "evidence_source": "testbed_config",
+                "observability": obs,
+                "evidence_source": ev_src,
+                "provenance": prov,
             })
             return 0.0
 
@@ -190,12 +272,13 @@ class ScoringEngine:
                 "category": "Key Lifetime",
                 "observed_value": lifetime,
                 "source": "compliance_map.yaml",
-                "evidence_source": "testbed_config",
+                "observability": obs,
+                "evidence_source": ev_src,
+                "provenance": prov,
             })
             return 0.0
 
         val = "valid" if lifetime <= max_seconds else "invalid"
-
         return self._evaluate_param("key_lifetime", val, findings, control_plane)
 
     def evaluate_ike_version(self, control_plane, findings):
@@ -218,138 +301,160 @@ class ScoringEngine:
         findings = []
         control_plane = analysis_input.get("control_plane") or {}
         data_plane = analysis_input.get("data_plane") or {}
-        if not control_plane:
-    # Control-plane evidence is absent.
-    # This is not equivalent to a failed security configuration.
-            self.evaluate_encryption(control_plane, findings)
-            self.evaluate_integrity(control_plane, findings)
-            self.evaluate_key_exchange(control_plane, findings)
-            self.evaluate_pfs(control_plane, findings)
-            self.evaluate_replay_protection(control_plane, findings)
-            self.evaluate_key_lifetime(control_plane, findings)
-            self.evaluate_ike_version(control_plane, findings)
-            self.evaluate_mode(control_plane, findings)
 
-            h_mode = data_plane.get("heuristic_mode_prediction")
-            l_mode = data_plane.get("llm_mode_prediction")
-
-            agreement_flag = (
-                h_mode is not None
-                and l_mode is not None
-                and h_mode == l_mode
-            )
-
-            ai_confidence = data_plane.get("ai_confidence_score", 0.0)
-
-            return {
-                "score": None,
-                "risk_level": "NOT_ASSESSED",
-                "findings": findings,
-                "score_breakdown": {
-                    "encryption": {"score": 0.0, "max_score": self.weights["encryption"]},
-                    "integrity": {"score": 0.0, "max_score": self.weights["integrity"]},
-                    "key_exchange": {"score": 0.0, "max_score": self.weights["key_exchange"]},
-                    "pfs": {"score": 0.0, "max_score": self.weights["pfs"]},
-                    "replay_protection": {"score": 0.0, "max_score": self.weights["replay_protection"]},
-                    "key_lifetime": {"score": 0.0, "max_score": self.weights["key_lifetime"]},
-                    "ike_version": {"score": 0.0, "max_score": self.weights["ike_version"]},
-                    "mode": {"score": 0.0, "max_score": self.weights["mode"]},
-                },
-                "ai_confidence_score": ai_confidence,
-                "agreement_flag": agreement_flag,
-            }
-        
-
-        encryption_score = self.evaluate_encryption(control_plane, findings)
-        integrity_score = self.evaluate_integrity(control_plane, findings)
-        key_exchange_score = self.evaluate_key_exchange(control_plane, findings)
-        pfs_score = self.evaluate_pfs(control_plane, findings)
-        replay_protection_score = self.evaluate_replay_protection(
-            control_plane,
-            findings
-            )
-        key_lifetime_score = self.evaluate_key_lifetime(
-            control_plane,
-            findings
-        )
-        ike_version_score = self.evaluate_ike_version(
-            control_plane,
-            findings
-        )
-        mode_score = self.evaluate_mode(control_plane, findings)
-
-        score = (
-            encryption_score
-            + integrity_score
-            + key_exchange_score
-            + pfs_score
-            + replay_protection_score
-            + key_lifetime_score
-            + ike_version_score
-            + mode_score
-        )
-        score_breakdown = {
-            "encryption": {
-                "score": encryption_score,
-                "max_score": self.weights["encryption"]
-            },
-            "integrity": {
-                "score": integrity_score,
-                "max_score": self.weights["integrity"]
-            },
-            "key_exchange": {
-                "score": key_exchange_score,
-                "max_score": self.weights["key_exchange"]
-            },
-            "pfs": {
-                "score": pfs_score,
-                "max_score": self.weights["pfs"]
-            },
-            "replay_protection": {
-                "score": replay_protection_score,
-                "max_score": self.weights["replay_protection"]
-            },
-            "key_lifetime": {
-                "score": key_lifetime_score,
-                "max_score": self.weights["key_lifetime"]
-            },
-            "ike_version": {
-                "score": ike_version_score,
-                "max_score": self.weights["ike_version"]
-            },
-            "mode": {
-                "score": mode_score,
-                "max_score": self.weights["mode"]
-            }
-        }
-
-        # Final score normalization
-        score = round(score, 2)
-        score = max(0.0, min(score, 100.0))
-
-        # AI Independence calculations
-        # AI results supplied by Part 4
         h_mode = data_plane.get("heuristic_mode_prediction")
         l_mode = data_plane.get("llm_mode_prediction")
-
-# Agreement is calculated independently from the supplied predictions.
         agreement_flag = (
             h_mode is not None
             and l_mode is not None
             and h_mode == l_mode
         )
-
-    
-    # Part 4 is the source of this value.
         ai_confidence = data_plane.get("ai_confidence_score", 0.0)
 
-        risk_level = self.get_risk_level(score)
+        categories = [
+            "encryption",
+            "integrity",
+            "key_exchange",
+            "pfs",
+            "replay_protection",
+            "key_lifetime",
+            "ike_version",
+            "mode",
+        ]
+
+        if not control_plane:
+            for cat in categories:
+                eval_fn = getattr(self, f"evaluate_{cat}")
+                eval_fn(control_plane, findings)
+
+            score_breakdown = {}
+            for cat in categories:
+                score_breakdown[cat] = {
+                    "score": 0.0,
+                    "max_score": float(self.weights[cat]),
+                    "observability": "not_observable",
+                    "evidence_source": "inferred",
+                }
+
+            return {
+                "score": None,
+                "risk_level": "NOT_ASSESSED",
+                "score_observed_only": None,
+                "score_if_unobserved_fail": None,
+                "score_if_unobserved_pass": None,
+                "score_headline": "N/A",
+                "coverage": "0/8",
+                "coverage_ratio": 0.0,
+                "confidence_label": "LOW",
+                "observed_controls_count": 0,
+                "operator_supplied_controls_count": 0,
+                "unobserved_controls_count": 8,
+                "findings": findings,
+                "score_breakdown": score_breakdown,
+                "ai_confidence_score": ai_confidence,
+                "agreement_flag": agreement_flag,
+            }
+
+        raw_scores = {
+            "encryption": self.evaluate_encryption(control_plane, findings),
+            "integrity": self.evaluate_integrity(control_plane, findings),
+            "key_exchange": self.evaluate_key_exchange(control_plane, findings),
+            "pfs": self.evaluate_pfs(control_plane, findings),
+            "replay_protection": self.evaluate_replay_protection(control_plane, findings),
+            "key_lifetime": self.evaluate_key_lifetime(control_plane, findings),
+            "ike_version": self.evaluate_ike_version(control_plane, findings),
+            "mode": self.evaluate_mode(control_plane, findings),
+        }
+
+        score_breakdown = {}
+        observed_controls_count = 0
+        operator_supplied_controls_count = 0
+        unobserved_controls_count = 0
+
+        sum_verified_awarded = 0.0
+        sum_verified_max = 0.0
+        sum_unobserved_max = 0.0
+
+        for cat in categories:
+            max_w = float(self.weights.get(cat, 0))
+            awarded = float(raw_scores.get(cat, 0.0))
+            obs = self._get_observability(cat, control_plane)
+            val = control_plane.get(CATEGORY_TO_FIELD.get(cat, cat))
+            ev_src = self._get_evidence_source(cat, val, control_plane)
+
+            score_breakdown[cat] = {
+                "score": awarded,
+                "max_score": max_w,
+                "observability": obs,
+                "evidence_source": ev_src,
+            }
+
+            if obs == "observed":
+                observed_controls_count += 1
+                sum_verified_awarded += awarded
+                sum_verified_max += max_w
+            elif obs == "operator_supplied":
+                operator_supplied_controls_count += 1
+                sum_verified_awarded += awarded
+                sum_verified_max += max_w
+            else:
+                unobserved_controls_count += 1
+                sum_unobserved_max += max_w
+
+        total_controls = len(categories)
+        total_verified = observed_controls_count + operator_supplied_controls_count
+        coverage = f"{total_verified}/{total_controls}"
+        coverage_ratio = round(total_verified / float(total_controls), 4)
+
+        if total_verified == total_controls:
+            confidence_label = "HIGH"
+        elif total_verified >= 4:
+            confidence_label = "MEDIUM"
+        else:
+            confidence_label = "LOW"
+
+        score_observed_only = (
+            round((sum_verified_awarded / sum_verified_max) * 100.0, 2)
+            if sum_verified_max > 0
+            else 0.0
+        )
+        score_if_unobserved_fail = round(sum_verified_awarded, 2)
+        score_if_unobserved_pass = round(sum_verified_awarded + sum_unobserved_max, 2)
+
+        score_observed_only = max(0.0, min(100.0, score_observed_only))
+        score_if_unobserved_fail = max(0.0, min(100.0, score_if_unobserved_fail))
+        score_if_unobserved_pass = max(0.0, min(100.0, score_if_unobserved_pass))
+
+        def _fmt(v: float) -> str:
+            return str(int(v)) if v.is_integer() else f"{v:.1f}"
+
+        if score_if_unobserved_fail == score_if_unobserved_pass:
+            score_headline = f"{_fmt(score_if_unobserved_fail)}/{_fmt(score_if_unobserved_pass)}, coverage {coverage}"
+        else:
+            score_headline = f"{_fmt(score_if_unobserved_fail)}–{_fmt(score_if_unobserved_pass)}, coverage {coverage}"
+
+        primary_score = score_if_unobserved_fail
+
+        if unobserved_controls_count > 0:
+            risk_level = "UNVERIFIED"
+        else:
+            risk_level = self.get_risk_level(primary_score)
 
         return {
-            "score": score,
+            "score": primary_score,
             "risk_level": risk_level,
+            "score_observed_only": score_observed_only,
+            "score_if_unobserved_fail": score_if_unobserved_fail,
+            "score_if_unobserved_pass": score_if_unobserved_pass,
+            "score_headline": score_headline,
+            "coverage": coverage,
+            "coverage_ratio": coverage_ratio,
+            "confidence_label": confidence_label,
+            "observed_controls_count": observed_controls_count,
+            "operator_supplied_controls_count": operator_supplied_controls_count,
+            "unobserved_controls_count": unobserved_controls_count,
             "findings": findings,
             "score_breakdown": score_breakdown,
             "ai_confidence_score": ai_confidence,
-            "agreement_flag": agreement_flag
+            "agreement_flag": agreement_flag,
         }

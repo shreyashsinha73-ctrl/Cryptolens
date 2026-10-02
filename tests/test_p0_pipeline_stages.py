@@ -56,4 +56,4 @@ def test_parse_ike_bytes_and_dynamic_scoring():
     eval_res = scorer.evaluate(analysis_input)
     assert eval_res["score"] is not None
     assert eval_res["score"] > 0
-    assert eval_res["risk_level"] in ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+    assert eval_res["risk_level"] in ("LOW", "MEDIUM", "HIGH", "CRITICAL", "UNVERIFIED")

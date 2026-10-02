@@ -2,7 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '../context/useTheme.js';
 import Badge from './common/Badge.jsx';
 
-const ScoreDial = ({ overall_score, risk_level , nist_status}) => {
+const ScoreDial = ({
+  overall_score,
+  risk_level,
+  nist_status,
+  score_headline,
+  coverage,
+  score_if_unobserved_fail,
+  score_if_unobserved_pass,
+}) => {
   const { isDark } = useTheme();
   const isNotAssessed =
   overall_score === null || overall_score === undefined;
@@ -72,8 +80,11 @@ const score = isNotAssessed
     colorCode = '#9CA3AF';
     badgeVariant = 'on_hold';
     statusText = 'NOT ASSESSED';
-  }
-  else if (normalizedRisk === 'LOW' || normalizedRisk === 'COMPLIANT') {
+  } else if (normalizedRisk === 'UNVERIFIED') {
+    colorCode = '#818CF8'; // Indigo
+    badgeVariant = 'on_hold';
+    statusText = 'UNVERIFIED (PARTIAL TELEMETRY)';
+  } else if (normalizedRisk === 'LOW' || normalizedRisk === 'COMPLIANT') {
     colorCode = '#00B69B'; // Green
     badgeVariant = 'completed';
     statusText = 'COMPLIANT (LOW RISK)';
@@ -145,6 +156,18 @@ const score = isNotAssessed
               className="text-2xl font-black font-['Nunito_Sans'] tracking-tight text-gray-400 dark:text-gray-500 text-center"
             >
               N/A
+            </div>
+          ) : normalizedRisk === 'UNVERIFIED' ? (
+            <div className="flex flex-col items-center">
+              <span
+                className="text-2xl font-black font-['Nunito_Sans'] tracking-tight"
+                style={{ color: colorCode }}
+              >
+                {score_headline || `${score_if_unobserved_fail ?? score}–${score_if_unobserved_pass ?? 100}`}
+              </span>
+              <span className="text-[10px] font-extrabold uppercase text-indigo-400 mt-0.5">
+                Cov: {coverage || 'Partial'}
+              </span>
             </div>
           ) : (
             <div className="flex items-baseline">

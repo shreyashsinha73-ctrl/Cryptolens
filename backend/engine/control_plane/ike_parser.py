@@ -174,6 +174,8 @@ class IkeParser:
                 lifetime_val = 86400 if ike_version == "IKEv1" else 28800
                 esn_val = False if ike_version == "IKEv1" else esn
 
+                obs_map, ev_map = self.get_default_observability_maps(ike_version)
+
                 return {
                     "parsed_successfully": True,
                     "engine_used": "tshark",
@@ -186,10 +188,59 @@ class IkeParser:
                         "prf_algorithm": prf,
                         "pfs_enabled": pfs_val,
                         "key_lifetime_seconds": lifetime_val,
-                        "replay_protection_enabled": esn_val
+                        "replay_protection_enabled": esn_val,
+                        "observability": obs_map,
+                        "evidence_source": ev_map,
                     }
                 }
         return None
+
+    @staticmethod
+    def get_default_observability_maps(ike_version: str) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """Return canonical wire observability and evidence provenance maps for IKEv1 vs IKEv2."""
+        if "1" in str(ike_version).lower():
+            obs = {
+                "ike_version": "observed",
+                "key_exchange": "observed",
+                "encryption": "observed",
+                "integrity": "observed",
+                "replay_protection": "observed",
+                "mode": "inferred",
+                "pfs": "not_observable",
+                "key_lifetime": "not_observable",
+            }
+            ev = {
+                "ike_version": "ike_v1_cleartext",
+                "key_exchange": "ike_v1_cleartext",
+                "encryption": "ike_v1_cleartext",
+                "integrity": "ike_v1_cleartext",
+                "replay_protection": "esp_header_metadata",
+                "mode": "traffic_statistics",
+                "pfs": "inferred",
+                "key_lifetime": "inferred",
+            }
+        else:
+            obs = {
+                "ike_version": "observed",
+                "key_exchange": "observed",
+                "replay_protection": "observed",
+                "mode": "inferred",
+                "encryption": "not_observable",
+                "integrity": "not_observable",
+                "pfs": "not_observable",
+                "key_lifetime": "not_observable",
+            }
+            ev = {
+                "ike_version": "ike_sa_init",
+                "key_exchange": "ike_sa_init",
+                "replay_protection": "esp_header_metadata",
+                "mode": "traffic_statistics",
+                "encryption": "testbed_config",
+                "integrity": "testbed_config",
+                "pfs": "testbed_config",
+                "key_lifetime": "testbed_config",
+            }
+        return obs, ev
 
     def _parse_native(self) -> Dict[str, Any]:
         """Native pure-Python binary IKE parser."""
@@ -273,6 +324,10 @@ class IkeParser:
 
         if child_sa_seen:
             best_control_plane["pfs_enabled"] = child_ke_seen
+
+        obs_map, ev_map = self.get_default_observability_maps(best_control_plane["ike_version"])
+        best_control_plane["observability"] = obs_map
+        best_control_plane["evidence_source"] = ev_map
 
         if ike_packets_found == 0:
             return {
@@ -457,6 +512,10 @@ def parse_ike_bytes(ike_payload: bytes) -> Optional[Dict[str, Any]]:
             "replay_protection_enabled": True if major_version == 2 else False,
             "operating_mode": "tunnel",
         }
+
+        obs_map, ev_map = IkeParser.get_default_observability_maps(ike_version_str)
+        control_plane["observability"] = obs_map
+        control_plane["evidence_source"] = ev_map
 
         while curr_payload_type != 0 and len(payload_data) >= 4:
             next_p, critical, p_len = struct.unpack("!BBH", payload_data[:4])

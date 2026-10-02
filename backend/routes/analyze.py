@@ -3,8 +3,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 import aiofiles
-from fastapi import APIRouter, File, HTTPException, UploadFile, status, BackgroundTasks
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status, BackgroundTasks
 from backend.schemas.analysis import ErrorResponse, UploadResponse
+from backend.schemas.sidecar import IPsecSidecarConfig
 from backend.scoring.scoring_engine import ScoringEngine
 from backend.services.result_store import ResultStore
 from backend.services.analyzer_provider import get_analyzer_provider
@@ -25,12 +26,10 @@ provider = get_analyzer_provider()
 compliance_engine = ComplianceEngine()
 result_store = ResultStore()
 
-async def process_pcap_pipeline(job_id: str, file_path: Path):
+async def process_pcap_pipeline(job_id: str, file_path: Path, sidecar_config: Optional[dict] = None):
     try:
-        # Part 2 is now integrated through AnalyzerProvider.
-        # The provider calls IkeParser.parse(), unwraps control_plane,
-        # and normalizes parser output for the backend contract.
-        analysis_input = await asyncio.to_thread(provider.get_analysis, str(file_path))
+        # Part 2 is integrated through AnalyzerProvider with optional operator sidecar.
+        analysis_input = await asyncio.to_thread(provider.get_analysis, str(file_path), sidecar_config=sidecar_config)
 
         # Part 5: authoritative security scoring
         evaluation = scorer.evaluate(analysis_input)
@@ -39,7 +38,6 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
         compliance_result = compliance_engine.evaluate(analysis_input)
 
         # Calculate processed packet count from the available data plane.
-        # This remains compatible with the current placeholder Part 3.
         processed_packets = sum(
             item.get("packet_count", 0)
             for item in analysis_input.get("data_plane", {}).get(
@@ -60,22 +58,25 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
             "summary": {
                 "overall_security_score": security_score,
                 "risk_level": risk_level,
+                "score_observed_only": evaluation.get("score_observed_only"),
+                "score_if_unobserved_fail": evaluation.get("score_if_unobserved_fail"),
+                "score_if_unobserved_pass": evaluation.get("score_if_unobserved_pass"),
+                "score_headline": evaluation.get("score_headline"),
+                "coverage": evaluation.get("coverage"),
+                "coverage_ratio": evaluation.get("coverage_ratio"),
+                "confidence_label": evaluation.get("confidence_label"),
                 "ai_confidence_score": evaluation["ai_confidence_score"],
                 "agreement_flag": evaluation["agreement_flag"],
                 "processed_packets": processed_packets,
             },
             "control_plane": analysis_input.get("control_plane"),
-
             "data_plane": analysis_input.get("data_plane"),
-
             "score_breakdown": evaluation.get(
                 "score_breakdown", {}
             ),
-
             "threat_matrix": evaluation.get(
                 "findings", []
             ),
-
             "compliance": compliance_result,
             "pcap_file": str(Path(file_path).resolve()),
         }
@@ -102,7 +103,13 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
         500: {"model": ErrorResponse},
     },
 )
-async def analyze_pcap(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def analyze_pcap(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    sidecar: Optional[UploadFile] = File(default=None),
+    sidecar_json: Optional[str] = Form(default=None),
+):
+    import json
     file_ext = Path(file.filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -112,6 +119,51 @@ async def analyze_pcap(background_tasks: BackgroundTasks, file: UploadFile = Fil
                 "message": "Only .pcap, .pcapng, and .cap files are supported.",
             },
         )
+
+    # Parse and validate sidecar configuration if supplied
+    sidecar_data = None
+    if sidecar and sidecar.filename:
+        try:
+            content = await sidecar.read()
+            if content:
+                raw_sidecar = json.loads(content.decode("utf-8"))
+                sidecar_data = IPsecSidecarConfig(**raw_sidecar).model_dump(exclude_unset=True)
+        except json.JSONDecodeError as jde:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error_code": "INVALID_SIDECAR_JSON",
+                    "message": f"Malformed sidecar JSON: {str(jde)}",
+                },
+            )
+        except Exception as ve:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error_code": "INVALID_SIDECAR_SCHEMA",
+                    "message": f"Sidecar schema validation failed: {str(ve)}",
+                },
+            )
+    elif sidecar_json:
+        try:
+            raw_sidecar = json.loads(sidecar_json)
+            sidecar_data = IPsecSidecarConfig(**raw_sidecar).model_dump(exclude_unset=True)
+        except json.JSONDecodeError as jde:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error_code": "INVALID_SIDECAR_JSON",
+                    "message": f"Malformed sidecar JSON string: {str(jde)}",
+                },
+            )
+        except Exception as ve:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error_code": "INVALID_SIDECAR_SCHEMA",
+                    "message": f"Sidecar schema validation failed: {str(ve)}",
+                },
+            )
 
     job_id = f"job_{uuid.uuid4().hex[:8]}"
     safe_filename = f"{job_id}{file_ext}"
@@ -141,8 +193,8 @@ async def analyze_pcap(background_tasks: BackgroundTasks, file: UploadFile = Fil
             },
         )
 
-    # Trigger background task
-    background_tasks.add_task(process_pcap_pipeline, job_id, file_path)
+    # Trigger background task with sidecar configuration
+    background_tasks.add_task(process_pcap_pipeline, job_id, file_path, sidecar_data)
 
     return UploadResponse(
         job_id=job_id,
@@ -150,3 +202,4 @@ async def analyze_pcap(background_tasks: BackgroundTasks, file: UploadFile = Fil
         filename=file.filename,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
     )
+
