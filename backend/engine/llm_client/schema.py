@@ -20,12 +20,12 @@ class ModeAndTrafficInferenceRequest(BaseModel):
     packet_lengths: list[float] = Field(
         ...,
         description="Sequence of ESP packet lengths (S_L) in bytes. First 30 packets.",
-        min_items=1,
+        min_length=1,
     )
     inter_arrival_times: list[float] = Field(
         ...,
         description="Sequence of inter-arrival times (S_IAT) in seconds.",
-        min_items=1,
+        min_length=1,
     )
     packet_count: int = Field(
         ...,

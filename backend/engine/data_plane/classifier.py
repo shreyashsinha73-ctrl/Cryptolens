@@ -29,7 +29,7 @@ VALID_TRAFFIC_TYPES = {"https", "voip", "icmp", "unknown"}
 BACKEND_LLM = "llm"
 BACKEND_CNN = "cnn"
 
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 DEFAULT_TIMEOUT_SECONDS = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0"))
 
 
@@ -182,6 +182,12 @@ def _classify_via_llm(esp_features: Dict[str, Any]) -> Dict[str, Any]:
     Expects GEMINI_API_KEY (or AI_API_KEY fallback) in the environment.
     Returns a standardized dictionary.
     """
+    enable_cloud = os.getenv("ENABLE_CLOUD_LLM", "false").lower() in ("true", "1", "yes")
+    if not enable_cloud:
+        import logging
+        logging.getLogger(__name__).info("Cloud LLM disabled by policy (ENABLE_CLOUD_LLM=false)")
+        raise RuntimeError("Cloud LLM disabled by policy (ENABLE_CLOUD_LLM=false)")
+
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY")
     if not api_key:
         raise ValueError(

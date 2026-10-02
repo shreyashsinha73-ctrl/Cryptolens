@@ -28,9 +28,10 @@ class GeminiClientConfig:
     """Configuration for Gemini API client."""
 
     def __init__(self):
+        self.enable_cloud_llm = os.getenv("ENABLE_CLOUD_LLM", "false").lower() in ("true", "1", "yes")
         raw_key = os.getenv("GEMINI_API_KEY") or os.getenv("AI_API_KEY") or ""
         self.api_key = raw_key.strip().strip("'\"").strip()
-        raw_model = os.getenv("GEMINI_MODEL") or "gemini-3.8-flash"
+        raw_model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
         self.model = raw_model.strip().strip("'\"").strip()
         self.timeout_seconds = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "30.0"))
         self.api_url_template = (
@@ -38,7 +39,10 @@ class GeminiClientConfig:
         )
 
     def validate(self) -> bool:
-        """Check that API key is configured."""
+        """Check that Cloud LLM is permitted and API key is configured."""
+        if not self.enable_cloud_llm:
+            logger.info("Cloud LLM disabled by policy (ENABLE_CLOUD_LLM=false)")
+            return False
         if not self.api_key:
             logger.error("GEMINI_API_KEY not set. LLM inference disabled.")
             return False
@@ -218,6 +222,9 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
 
     def _call_gemini_api(self, prompt: str) -> Optional[str]:
         """Call Gemini API with model fallback and exponential backoff retry."""
+        if not self.config.enable_cloud_llm:
+            logger.info("Cloud LLM disabled by policy (ENABLE_CLOUD_LLM=false)")
+            return None
         api_key = self.config.api_key.strip().strip("'\"").strip()
 
         # Build ordered model list: configured model first, then fallbacks
