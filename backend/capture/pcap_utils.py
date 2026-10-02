@@ -592,20 +592,28 @@ def find_pcap_for_job(job_id: str) -> Optional[Path]:
         return None
 
     root = Path(__file__).resolve().parents[2]
+    clean_id = job_id.removeprefix("testbed_")
 
     # 1. Check uploaded PCAPs
     upload_dir = root / "backend" / "uploads"
-    for ext in [".pcap", ".pcapng", ".cap"]:
-        p = upload_dir / f"{job_id}{ext}"
-        if p.exists() and p.stat().st_size > 0:
-            return p
+    for candidate in (job_id, clean_id):
+        for ext in [".pcap", ".pcapng", ".cap"]:
+            p = upload_dir / f"{candidate}{ext}"
+            if p.exists() and p.stat().st_size > 0:
+                return p
 
     # 2. Check testbed captures direct matches
     cap_dir = root / "captures"
-    for pattern in [f"{job_id}_all.pcap", f"{job_id}.pcap", f"{job_id}"]:
-        p = cap_dir / pattern
-        if p.exists() and p.stat().st_size > 0:
-            return p
+    for candidate in (job_id, clean_id):
+        for pattern in [
+            f"{candidate}.pcap",
+            f"{candidate}_all.pcap",
+            f"{candidate}",
+            f"{candidate.removesuffix('_all')}_all.pcap",
+        ]:
+            p = cap_dir / pattern
+            if p.exists() and p.stat().st_size > 0:
+                return p
 
     # 3. Check captures/manifest.json
     manifest_path = cap_dir / "manifest.json"
@@ -614,7 +622,8 @@ def find_pcap_for_job(job_id: str) -> Optional[Path]:
             with open(manifest_path, "r", encoding="utf-8") as f:
                 manifest = json.load(f)
                 for c in manifest.get("captures", []):
-                    if c.get("config_id") == job_id:
+                    cid = c.get("config_id", "")
+                    if cid in (job_id, clean_id) or clean_id.startswith(cid) or job_id.startswith(cid):
                         p = root / c.get("pcap_path")
                         if p.exists() and p.stat().st_size > 0:
                             return p
