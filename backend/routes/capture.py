@@ -76,6 +76,7 @@ def _run_pipeline_sync(job_id: str, file_path: Path):
             "score_breakdown": evaluation.get("score_breakdown", {}),
             "threat_matrix": evaluation.get("findings", []),
             "compliance": compliance_result,
+            "pcap_file": str(Path(file_path).resolve()),
         }
 
         result_store.save(job_id, result_payload)

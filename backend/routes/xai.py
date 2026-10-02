@@ -134,7 +134,14 @@ async def get_threat_localization(job_id: str, method: str = "grad_cam"):
         result = _store.load(job_id)
 
     # 1. Resolve physical PCAP file
-    pcap_path = find_pcap_for_job(job_id)
+    pcap_path = None
+    if result and result.get("pcap_file"):
+        p_candidate = Path(result["pcap_file"])
+        if p_candidate.exists() and p_candidate.stat().st_size > 0:
+            pcap_path = p_candidate
+
+    if not pcap_path:
+        pcap_path = find_pcap_for_job(job_id)
 
     # 2. Extract authentic packet records directly from the PCAP
     records: List[ESPPacketRecord] = []

@@ -94,10 +94,19 @@ export function useLiveTelemetry() {
     };
   }, [connect]);
 
+  const clearWire = useCallback(() => {
+    setWireEvents([]);
+    setEspEvents([]);
+    setIkeEvents([]);
+    setAnomalyAlerts([]);
+    setRollingScore(null);
+    setStreamCompleted(false);
+    setCompletionMessage(null);
+  }, []);
+
   const startCapture = async (iface = 'any') => {
     try {
-      setStreamCompleted(false);
-      setCompletionMessage(null);
+      clearWire();
       const res = await fetch(`/api/v1/live/start?interface=${iface}`, { method: 'POST' });
       const data = await res.json();
       if (data.status === 'started') setIsStreaming(true);
@@ -109,8 +118,7 @@ export function useLiveTelemetry() {
 
   const simulateCapture = async (jobId = null) => {
     try {
-      setStreamCompleted(false);
-      setCompletionMessage(null);
+      clearWire();
       let url = '/api/v1/live/simulate';
       if (jobId) {
         url += `?job_id=${encodeURIComponent(jobId)}`;
@@ -146,15 +154,6 @@ export function useLiveTelemetry() {
     } catch (e) {
       return { status: 'error', message: e.message };
     }
-  };
-
-  const clearWire = () => {
-    setWireEvents([]);
-    setEspEvents([]);
-    setIkeEvents([]);
-    setAnomalyAlerts([]);
-    setStreamCompleted(false);
-    setCompletionMessage(null);
   };
 
   return {

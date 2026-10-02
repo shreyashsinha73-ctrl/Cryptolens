@@ -1,6 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Card from '../common/Card.jsx';
 import { useLiveTelemetry } from '../../hooks/useLiveTelemetry';
+
+function formatTimestamp(ts) {
+  if (ts === null || ts === undefined) return '—';
+  const num = typeof ts === 'number' ? ts : parseFloat(ts);
+  if (isNaN(num) || num <= 0) return String(ts);
+  if (num > 1e8) {
+    const d = new Date(num * 1000);
+    const timeStr = d.toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const ms = String(Math.floor((num % 1) * 1000)).padStart(3, '0');
+    return `${timeStr}.${ms}`;
+  }
+  return `${num.toFixed(3)}s`;
+}
 
 export default function LiveTelemetryPanel({ jobId = null, isRealData = false }) {
   const {
@@ -15,7 +33,6 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
     anomalyAlerts,
     startCapture,
     simulateCapture,
-    injectTraffic,
     stopCapture,
     clearWire,
   } = useLiveTelemetry();
@@ -23,7 +40,15 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
   const [wireFilter, setWireFilter] = useState('all');
   const [selectedPacket, setSelectedPacket] = useState(null);
 
+  // Reset stream counter, wire events, and inspection state whenever a new PCAP is ingested or uploaded
+  useEffect(() => {
+    clearWire();
+    setSelectedPacket(null);
+  }, [jobId, clearWire]);
+
   const handleSimulate = () => {
+    clearWire();
+    setSelectedPacket(null);
     if (jobId) {
       simulateCapture(jobId);
     } else {
@@ -34,7 +59,7 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
   const filteredWire = wireEvents.filter((pkt) => {
     if (wireFilter === 'esp') return pkt.protocol === 'ESP' || pkt.packet_type?.includes('ESP');
     if (wireFilter === 'ike') return pkt.protocol === 'IKE' || pkt.packet_type?.includes('IKE');
-    if (wireFilter === 'anomaly') return pkt.severity === 'CRITICAL' || pkt.severity === 'WARNING' || pkt.is_replay;
+    if (wireFilter === 'anomaly') return pkt.severity === 'CRITICAL' || pkt.severity === 'WARNING' || pkt.severity === 'MEDIUM' || pkt.is_replay;
     return true;
   });
 
@@ -112,26 +137,6 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             Live Sniff
-          </button>
-
-          {/* Traffic Injector 1: Hardened */}
-          <button
-            onClick={() => injectTraffic('hardened')}
-            className="text-xs px-3 py-2 font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-            title="Inject authentic NIST/CNSA compliant AES-256-GCM + DH19 traffic"
-          >
-            <span>🛡️</span>
-            <span>Inject Hardened</span>
-          </button>
-
-          {/* Traffic Injector 2: Attack/Vulnerable */}
-          <button
-            onClick={() => injectTraffic('vulnerable')}
-            className="text-xs px-3 py-2 font-bold rounded-lg bg-rose-600 hover:bg-rose-700 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-            title="Inject Sweet32 3DES packets and Replay Attack duplicate sequence numbers"
-          >
-            <span>⚠️</span>
-            <span>Inject Attack</span>
           </button>
 
           {isStreaming && (
@@ -226,16 +231,16 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
                 className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
                   selectedPacket.severity === 'CRITICAL' || selectedPacket.is_replay
                     ? 'bg-red-500 text-white'
-                    : selectedPacket.severity === 'WARNING'
-                    ? 'bg-amber-500 text-white'
+                    : selectedPacket.severity === 'WARNING' || selectedPacket.severity === 'MEDIUM'
+                    ? 'bg-amber-500 text-gray-950 font-bold'
                     : 'bg-emerald-500 text-white'
                 }`}
               >
                 {selectedPacket.severity === 'CRITICAL' || selectedPacket.is_replay
                   ? 'CRITICAL THREAT'
-                  : selectedPacket.severity === 'WARNING'
-                  ? 'MODERATE WARNING'
-                  : 'SECURE / VERIFIED'}
+                  : selectedPacket.severity === 'WARNING' || selectedPacket.severity === 'MEDIUM'
+                  ? 'MEDIUM RISK'
+                  : 'LOW RISK / SECURE'}
               </span>
             </div>
             <button
@@ -246,43 +251,65 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
             </button>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 text-xs font-mono">
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">Packet Type</span>
-              <span className="font-bold text-purple-600 dark:text-purple-400">{selectedPacket.packet_type}</span>
-            </div>
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">Wire Flow</span>
-              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate block">
-                {selectedPacket.src_ip} &rarr; {selectedPacket.dst_ip}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 text-xs font-mono">
+            {/* Packet Type */}
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Packet Type</span>
+              <span className="font-bold text-purple-600 dark:text-purple-400 block text-[11px] leading-tight">
+                {selectedPacket.packet_type}
               </span>
             </div>
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">SPI (Hex)</span>
-              <span className="font-bold text-amber-600 dark:text-amber-400">{selectedPacket.spi || '—'}</span>
+
+            {/* Wire Flow - 2 columns so no truncation occurs */}
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-2 sm:col-span-2 lg:col-span-2">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Wire Flow</span>
+              <span className="font-semibold text-gray-800 dark:text-gray-200 block text-[11px] font-mono leading-tight whitespace-nowrap overflow-x-auto">
+                {selectedPacket.src_ip}{selectedPacket.src_port ? `:${selectedPacket.src_port}` : ''}
+                {' '}&rarr;{' '}
+                {selectedPacket.dst_ip}{selectedPacket.dst_port ? `:${selectedPacket.dst_port}` : ''}
+              </span>
             </div>
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">Sequence #</span>
-              <span className={`font-bold ${selectedPacket.is_replay ? 'text-red-500 underline' : 'text-gray-800 dark:text-gray-200'}`}>
+
+            {/* SPI (Hex) */}
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">SPI (Hex)</span>
+              <span className="font-bold text-amber-600 dark:text-amber-400 block text-[11px] font-mono whitespace-nowrap">
+                {selectedPacket.spi || '—'}
+              </span>
+            </div>
+
+            {/* Sequence # */}
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Sequence #</span>
+              <span className={`font-bold block text-[11px] ${selectedPacket.is_replay ? 'text-red-500 underline font-black' : 'text-gray-800 dark:text-gray-200'}`}>
                 {selectedPacket.seq_num !== null && selectedPacket.seq_num !== undefined ? selectedPacket.seq_num : '—'}
                 {selectedPacket.is_replay && ' [REPLAY]'}
               </span>
             </div>
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">Wire Length</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400">{selectedPacket.packet_length} Bytes</span>
+
+            {/* Wire Length */}
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Wire Length</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400 block text-[11px] whitespace-nowrap">
+                {selectedPacket.packet_length} Bytes
+              </span>
             </div>
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block">Timestamp</span>
-              <span className="text-gray-600 dark:text-gray-300 truncate block">
-                {typeof selectedPacket.timestamp === 'number' ? selectedPacket.timestamp.toFixed(3) : selectedPacket.timestamp}
+
+            {/* Timestamp */}
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Timestamp</span>
+              <span className="font-semibold text-gray-700 dark:text-gray-300 block text-[11px] whitespace-nowrap" title={`Epoch: ${selectedPacket.timestamp}`}>
+                {formatTimestamp(selectedPacket.timestamp)}
+              </span>
+              <span className="text-[9px] text-gray-400 block truncate font-mono">
+                {selectedPacket.timestamp ? Number(selectedPacket.timestamp).toFixed(1) : ''}
               </span>
             </div>
           </div>
 
-          <div className="mt-2.5 p-2 rounded-lg bg-gray-100 dark:bg-[#1E2530] text-[11px] font-mono text-gray-700 dark:text-gray-300">
-            <span className="font-bold text-gray-500 mr-2">Analysis:</span>
-            {selectedPacket.details || 'Standard wire frame verified.'}
+          <div className="mt-3 p-3 rounded-lg bg-white dark:bg-[#1E2530] text-[11px] font-mono text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-[#2C384B] flex items-start gap-2.5">
+            <span className="font-bold text-blue-600 dark:text-blue-400 shrink-0 uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">Analysis</span>
+            <span className="leading-relaxed">{selectedPacket.details || 'Standard wire frame verified.'}</span>
           </div>
         </div>
       )}
@@ -342,24 +369,24 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
                   : 'bg-gray-800 text-gray-400 hover:text-gray-200'
               }`}
             >
-              Anomalies ({wireEvents.filter(p => p.severity === 'CRITICAL' || p.severity === 'WARNING' || p.is_replay).length})
+              Anomalies ({wireEvents.filter(p => p.severity === 'CRITICAL' || p.severity === 'WARNING' || p.severity === 'MEDIUM' || p.is_replay).length})
             </button>
           </div>
         </div>
 
-        {/* Color-Coded Wire Packets Table (Red=Critical, Orange=Warning, Green=Correct) */}
-        <div className="font-mono text-xs space-y-1.5 max-h-60 overflow-y-auto pr-1">
+        {/* Color-Coded Wire Packets Table (Red=Critical, Orange=Medium, Green=Secure/Low) */}
+        <div className="font-mono text-xs space-y-1.5 min-h-[380px] max-h-[550px] overflow-y-auto pr-1">
           {filteredWire.length === 0 ? (
-            <div className="text-gray-500 italic py-6 text-center">
-              No wire traffic captured. Click &quot;Simulate Stream&quot;, &quot;Live Sniff&quot;, or &quot;Inject Hardened/Attack&quot; to begin.
+            <div className="text-gray-500 italic py-16 text-center">
+              No wire traffic captured. Click &quot;Simulate Stream&quot; or &quot;Live Sniff&quot; to begin.
             </div>
           ) : (
             filteredWire
-              .slice(-40)
+              .slice(-50)
               .reverse()
               .map((pkt, idx) => {
                 const isCrit = pkt.severity === 'CRITICAL' || pkt.is_replay;
-                const isWarn = pkt.severity === 'WARNING';
+                const isWarn = pkt.severity === 'WARNING' || pkt.severity === 'MEDIUM';
                 const isLow = !isCrit && !isWarn;
                 const isSelected = selectedPacket?.frame_number === pkt.frame_number;
 
@@ -390,11 +417,11 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
                           isCrit
                             ? 'bg-red-500 text-white'
                             : isWarn
-                            ? 'bg-amber-500 text-gray-900 font-extrabold'
+                            ? 'bg-amber-500 text-gray-950 font-extrabold'
                             : 'bg-emerald-500/30 text-emerald-300'
                         }`}
                       >
-                        {isCrit ? 'CRITICAL' : isWarn ? 'WARNING' : 'SECURE'}
+                        {isCrit ? 'CRITICAL' : isWarn ? 'MEDIUM' : 'SECURE'}
                       </span>
 
                       {/* Type Badge */}

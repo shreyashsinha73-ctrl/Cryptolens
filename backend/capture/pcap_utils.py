@@ -593,10 +593,18 @@ def find_pcap_for_job(job_id: str) -> Optional[Path]:
 
     root = Path(__file__).resolve().parents[2]
     clean_id = job_id.removeprefix("testbed_")
+    stripped_id = clean_id.removesuffix("_all")
+
+    candidates = [
+        job_id,
+        clean_id,
+        stripped_id,
+        f"{stripped_id}_all",
+    ]
 
     # 1. Check uploaded PCAPs
     upload_dir = root / "backend" / "uploads"
-    for candidate in (job_id, clean_id):
+    for candidate in candidates:
         for ext in [".pcap", ".pcapng", ".cap"]:
             p = upload_dir / f"{candidate}{ext}"
             if p.exists() and p.stat().st_size > 0:
@@ -604,12 +612,11 @@ def find_pcap_for_job(job_id: str) -> Optional[Path]:
 
     # 2. Check testbed captures direct matches
     cap_dir = root / "captures"
-    for candidate in (job_id, clean_id):
+    for candidate in candidates:
         for pattern in [
             f"{candidate}.pcap",
             f"{candidate}_all.pcap",
             f"{candidate}",
-            f"{candidate.removesuffix('_all')}_all.pcap",
         ]:
             p = cap_dir / pattern
             if p.exists() and p.stat().st_size > 0:
@@ -623,10 +630,12 @@ def find_pcap_for_job(job_id: str) -> Optional[Path]:
                 manifest = json.load(f)
                 for c in manifest.get("captures", []):
                     cid = c.get("config_id", "")
-                    if cid in (job_id, clean_id) or clean_id.startswith(cid) or job_id.startswith(cid):
-                        p = root / c.get("pcap_path")
-                        if p.exists() and p.stat().st_size > 0:
-                            return p
+                    pfile = c.get("pcap_file", "")
+                    for candidate in candidates:
+                        if candidate in (cid, pfile, f"{cid}_all.pcap", f"{cid}.pcap") or cid.startswith(candidate) or candidate.startswith(cid):
+                            p = root / c.get("pcap_path", "")
+                            if p.exists() and p.stat().st_size > 0:
+                                return p
         except Exception:
             pass
 

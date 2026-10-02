@@ -76,6 +76,7 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
             ),
 
             "compliance": compliance_result,
+            "pcap_file": str(Path(file_path).resolve()),
         }
 
         result_store.save(job_id, result_payload)
