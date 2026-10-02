@@ -83,6 +83,26 @@ class AnomalyDetector:
                 with open(meta_path, "r", encoding="utf-8") as f:
                     meta = json.load(f)
                 self._threshold = float(meta.get("threshold", self._threshold))
+                manifest_hashes = meta.get("sha256", {})
+                if manifest_hashes:
+                    import hashlib
+
+                    def get_file_sha256(p: Path) -> str:
+                        h = hashlib.sha256()
+                        with open(p, "rb") as f:
+                            while chunk := f.read(65536):
+                                h.update(chunk)
+                        return h.hexdigest()
+
+                    expected_model = manifest_hashes.get(model_path.name)
+                    if expected_model and get_file_sha256(model_path) != expected_model:
+                        raise ValueError(f"Integrity check failed: {model_path.name} SHA-256 mismatch")
+
+                    expected_scaler = manifest_hashes.get(scaler_path.name)
+                    if expected_scaler and get_file_sha256(scaler_path) != expected_scaler:
+                        raise ValueError(f"Integrity check failed: {scaler_path.name} SHA-256 mismatch")
+            except ValueError:
+                raise
             except Exception as e:
                 logger.warning(f"Could not load metadata from {meta_path}: {e}")
 

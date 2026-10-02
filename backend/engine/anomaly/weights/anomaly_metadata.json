@@ -1,7 +1,7 @@
 {
   "model_type": "IsolationForest",
-  "n_samples": 1500,
-  "threshold": 0.008149,
+  "n_samples": 1250,
+  "threshold": -0.0,
   "threshold_percentile": 99.5,
   "n_features": 14,
   "feature_names": [
@@ -19,5 +19,10 @@
     "length_entropy",
     "iat_cv",
     "log_bytes_per_second"
-  ]
+  ],
+  "held_out_evaluation_capture": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
+  "sha256": {
+    "anomaly_iforest.joblib": "e4c4fedd466064c96e8a32243121237afd687bd8829fede498725b9e1d3d2232",
+    "anomaly_scaler.joblib": "ab56c5f7500d23fdbc109eb8bc7b298a2dc2ab444bfd3f0c4ff859f23027998d"
+  }
 }
