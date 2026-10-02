@@ -145,44 +145,130 @@ def _classify_packet_threat(
     return ("normal", "No specific threat attributed to this packet.")
 
 
+class AntiReplayWindow:
+    """
+    RFC 4303 compliant Anti-Replay Sliding Window.
+    Maintains a 64-bit sliding window bitmap with 64-bit Extended Sequence Number
+    (ESN) unwrapping to prevent false alarms on rollover or out-of-order delivery.
+    """
+
+    def __init__(self, window_size: int = 64, enable_esn: bool = True):
+        self.window_size = window_size
+        self.enable_esn = enable_esn
+        self.bitmap = 0
+        self.last_seq = 0
+        self.seq_high = 0
+        self.packet_map = {}
+
+    def check_and_update(self, record: ESPPacketRecord) -> tuple[bool, Optional[str], Optional[ESPPacketRecord]]:
+        """
+        Check if packet is a duplicate or replay attack.
+        Returns: (is_replay, reason, original_record)
+        """
+        raw_seq = record.seq_num
+        if raw_seq is None or raw_seq <= 0:
+            return False, None, None
+
+        # 64-bit ESN rollover unwrapping (RFC 4303 Appendix A)
+        if self.enable_esn:
+            if self.last_seq == 0:
+                full_seq = raw_seq
+                self.seq_high = 0
+            else:
+                last_low = self.last_seq & 0xFFFFFFFF
+                # Check for wrap-around from high sequence numbers to low
+                if last_low >= 0xFFFFFF00 and raw_seq < 0x00000100:
+                    self.seq_high += 1
+                full_seq = (self.seq_high << 32) | raw_seq
+        else:
+            full_seq = raw_seq
+
+        # Case 1: First packet received
+        if self.last_seq == 0:
+            self.last_seq = full_seq
+            self.bitmap = 1
+            self.packet_map[full_seq] = record
+            return False, None, None
+
+        # Case 2: In-order or jump ahead
+        diff = full_seq - self.last_seq
+        if diff > 0:
+            if diff < self.window_size:
+                self.bitmap = ((self.bitmap << diff) | 1) & ((1 << self.window_size) - 1)
+            else:
+                self.bitmap = 1
+            self.last_seq = full_seq
+            self.packet_map[full_seq] = record
+            cutoff = self.last_seq - self.window_size
+            for old_s in list(self.packet_map.keys()):
+                if old_s <= cutoff:
+                    del self.packet_map[old_s]
+            return False, None, None
+
+        # Case 3: Sequence number <= last_seq (out of order or duplicate)
+        delta = self.last_seq - full_seq
+        if delta < self.window_size:
+            mask = 1 << delta
+            if self.bitmap & mask:
+                orig = self.packet_map.get(full_seq)
+                return True, f"Duplicate sequence #{raw_seq} detected within sliding window", orig
+            else:
+                self.bitmap |= mask
+                self.packet_map[full_seq] = record
+                return False, None, None
+        else:
+            orig = self.packet_map.get(full_seq)
+            return True, f"Stale sequence #{raw_seq} fell outside {self.window_size}-packet sliding window", orig
+
+
 def detect_replay_attacks(
     esp_records: list[ESPPacketRecord],
+    window_size: int = 64,
 ) -> list[dict]:
     """
-    Detect potential replay attacks by finding duplicate
-    (SPI, Sequence Number) pairs within the ESP stream.
+    Detect replay attacks across ESP stream using RFC 4303 sliding window.
+    Scopes window state per (interface, SPI) to prevent false positives when
+    the same packet is captured on multiple interfaces (e.g. 'any', veth pairs).
     """
-    seen = {}
+    from collections import OrderedDict
+
+    windows: OrderedDict[tuple, AntiReplayWindow] = OrderedDict()
+    max_active_spis = 1000
     duplicates = []
 
     for record in esp_records:
         if record.spi is None or record.seq_num is None:
             continue
-        key = (record.spi, record.seq_num)
-        if key in seen:
-            original = seen[key]
+
+        iface_key = record.iface if record.iface else "default"
+        key = (iface_key, record.spi)
+
+        if key not in windows:
+            if len(windows) >= max_active_spis:
+                windows.popitem(last=False)
+            windows[key] = AntiReplayWindow(window_size=window_size, enable_esn=True)
+
+        win = windows[key]
+        is_replay, reason, orig = win.check_and_update(record)
+        if is_replay:
+            orig_frame = orig.frame_number if orig else -1
+            orig_ts = orig.timestamp if orig else 0.0
+            time_delta = round((record.timestamp - orig_ts) * 1000, 2) if orig_ts > 0 else 0.0
             duplicates.append({
                 "type": "replay_attack_candidate",
                 "severity": "CRITICAL",
                 "spi": record.spi,
                 "seq_num": record.seq_num,
-                "original_frame": original.frame_number,
-                "original_timestamp": original.timestamp,
+                "iface": iface_key,
+                "original_frame": orig_frame,
+                "original_timestamp": orig_ts,
                 "duplicate_frame": record.frame_number,
                 "duplicate_timestamp": record.timestamp,
-                "time_delta_ms": round(
-                    (record.timestamp - original.timestamp) * 1000, 2
-                ),
+                "time_delta_ms": time_delta,
                 "description": (
-                    f"Duplicate ESP packet detected: SPI=0x{record.spi}, "
-                    f"Seq={record.seq_num}. Original frame #{original.frame_number} "
-                    f"at t={original.timestamp:.6f}, duplicate frame "
-                    f"#{record.frame_number} at t={record.timestamp:.6f} "
-                    f"(delta={record.timestamp - original.timestamp:.6f}s). "
-                    f"Potential replay attack."
+                    f"Cryptographic Replay Attack on [{iface_key}] SPI {record.spi}: "
+                    f"Seq #{record.seq_num}. {reason}."
                 ),
             })
-        else:
-            seen[key] = record
 
     return duplicates
