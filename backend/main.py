@@ -3,7 +3,7 @@ load_dotenv()
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routes import analyze, results, report, capture
+from backend.routes import analyze, results, report, capture, live, remediation, xai
 
 app = FastAPI(
     title="IPsec Protocol Analysis API",
@@ -30,3 +30,6 @@ app.include_router(analyze.router, prefix="/api/v1", tags=["Analysis"])
 app.include_router(results.router, prefix="/api/v1", tags=["Results"])
 app.include_router(report.router, prefix="/api/v1", tags=["Report"])
 app.include_router(capture.router, prefix="/api/v1", tags=["Capture"])
+app.include_router(live.router, tags=["Live Streaming"])
+app.include_router(remediation.router, tags=["Remediation"])
+app.include_router(xai.router, tags=["XAI"])

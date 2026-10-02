@@ -9,6 +9,7 @@ const SocHeader = ({
   activeJobId = null,
   onDownloadReport,
   isRealData = false,
+  onOpenRemediation,
 }) => {
   const fileInputRef = React.useRef(null);
 
@@ -86,6 +87,21 @@ const SocHeader = ({
           </svg>
           <span>{uploading ? 'Analysing…' : isRealData ? 'Upload New PCAP' : 'Upload PCAP'}</span>
         </button>
+
+        {/* AI Hardening */}
+        {onOpenRemediation && (
+          <button
+            onClick={onOpenRemediation}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 transition-colors cursor-pointer"
+            title="Generate AI-hardened IPsec configuration"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <span>AI Hardening</span>
+          </button>
+        )}
 
         {/* PDF Report — only when a job exists */}
         {activeJobId && onDownloadReport && (

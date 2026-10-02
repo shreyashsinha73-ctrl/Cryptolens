@@ -1,0 +1,26 @@
+{# CryptoLens Hardened Configuration Template #}
+{# Standard: NIST SP 800-77 Rev. 1 / NSA CNSA 2.0 #}
+connections {
+    {{ connection_name | default("hardened-tunnel") }} {
+        version = {{ ike_version | default(2) }}
+        rekey_time = {{ rekey_time | default("3600s") }}
+        proposals = {{ ike_proposal }}
+        local {
+            id = {{ local_id | default("moon") }}
+        }
+        remote {
+            id = {{ remote_id | default("sun") }}
+        }
+        children {
+            secure-child {
+                local_ts = {{ local_subnet | default("192.168.1.0/24") }}
+                remote_ts = {{ remote_subnet | default("192.168.2.0/24") }}
+                esp_proposals = {{ esp_proposal }}
+                replay_window = {{ replay_window | default(32) }}
+                mode = tunnel
+                start_action = trap
+            }
+        }
+    }
+}
+

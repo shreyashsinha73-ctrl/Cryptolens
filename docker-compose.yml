@@ -46,6 +46,7 @@ services:
     volumes:
       - ./backend:/workspace/backend
       - ./captures:/workspace/captures
+    cap_add: [NET_RAW, NET_ADMIN]
     environment:
       - PYTHONUNBUFFERED=1
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}

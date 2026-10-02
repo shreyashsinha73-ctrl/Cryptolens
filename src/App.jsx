@@ -13,23 +13,26 @@ import AnalysisDimensions from './components/dashboard/AnalysisDimensions.jsx';
 import ComplianceRadar from './components/dashboard/ComplianceRadar.jsx';
 import TrafficDistribution from './components/dashboard/TrafficDistribution.jsx';
 import AiTelemetryCard from './components/dashboard/AiTelemetryCard.jsx';
+import LiveTelemetryPanel from './components/dashboard/LiveTelemetryPanel.jsx';
+import ThreatHeatmap from './components/dashboard/ThreatHeatmap.jsx';
+import RemediationModal from './components/dashboard/RemediationModal.jsx';
 
 // ── Empty state shown before any PCAP is uploaded ──────────────────────────
 const EmptyState = ({ onUploadPcap, uploading }) => {
   const fileRef = React.useRef(null);
   return (
-    <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
-      <div className="w-20 h-20 rounded-2xl bg-blue-500/10 dark:bg-blue-500/15 flex items-center justify-center mb-6">
-        <svg className="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-blue-500/10 dark:bg-blue-500/15 flex items-center justify-center mb-4">
+        <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
       </div>
-      <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white mb-2">
-        No Analysis Yet
+      <h2 className="text-xl font-extrabold text-gray-900 dark:text-white mb-1.5">
+        Upload Offline PCAP Capture
       </h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mb-8 leading-relaxed">
-        <strong></strong> <strong></strong>
+      <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md mb-6 leading-relaxed">
+        Upload an existing <code>.pcap</code> or <code>.pcapng</code> file to perform comprehensive control-plane AST validation, data-plane CNN inference, and NIST/CNSA compliance auditing.
       </p>
       <input
         type="file"
@@ -63,10 +66,9 @@ const EmptyState = ({ onUploadPcap, uploading }) => {
 const AnalysingState = ({ jobId }) => (
   <div className="flex flex-col items-center justify-center py-24 px-6 text-center">
     <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-6" />
-    <h2 className="text-xl font-extrabold text-gray-900 dark:text-white mb-2">Analysing PCAP…</h2>
+    <h2 className="text-xl font-extrabold text-gray-900 dark:text-white mb-2">Loading Capture Assessment…</h2>
     <p className="text-xs text-gray-500 dark:text-gray-400">
-      Job <code className="font-mono font-bold">{jobId}</code> is running.
-      This usually takes 10–30 seconds.
+      Job <code className="font-mono font-bold">{jobId || 'Loading'}</code> is processing.
     </p>
   </div>
 );
@@ -79,6 +81,7 @@ function MainSocApp() {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [uploadError, setUploadError] = useState(null);
   const [ingesting, setIngesting] = useState(false);
+  const [remediationOpen, setRemediationOpen] = useState(false);
 
   // Poll backend for job status
   useEffect(() => {
@@ -92,7 +95,7 @@ function MainSocApp() {
           const payload = await res.json();
           if (payload.status === 'completed') {
             if (subscribed) { setAnalysisResult(payload); setUploading(false); }
-            return true; // indicates we should stop polling
+            return true;
           } else if (payload.status === 'failed') {
             if (subscribed) { setUploadError(payload.error?.message || 'Analysis failed'); setUploading(false); }
             return true;
@@ -102,17 +105,17 @@ function MainSocApp() {
       return false;
     };
 
-    let interval;
     fetchStatus().then(shouldStop => {
       if (!shouldStop && subscribed) {
-        interval = setInterval(async () => {
+        const interval = setInterval(async () => {
           const stop = await fetchStatus();
           if (stop) clearInterval(interval);
         }, 1500);
+        return () => clearInterval(interval);
       }
     });
 
-    return () => { subscribed = false; clearInterval(interval); };
+    return () => { subscribed = false; };
   }, [activeJobId]);
 
   const handleUploadPcap = async (file) => {
@@ -141,6 +144,7 @@ function MainSocApp() {
   const handleIngestTestbed = async () => {
     setIngesting(true);
     setUploadError(null);
+    setUploading(true);
     try {
       const res = await fetch('/api/v1/capture/ingest', { method: 'POST' });
       if (!res.ok) {
@@ -150,28 +154,34 @@ function MainSocApp() {
         throw new Error(msg);
       }
       const payload = await res.json();
-      if ((payload.succeeded > 0 || payload.skipped > 0) && payload.results) {
-        const successfulResults = payload.results.filter(r => r.status === 'completed' || r.status === 'already_ingested');
-        if (successfulResults.length > 0) {
-          // Cycle to the next PCAP using the most up-to-date previous state
-          setActiveJobId(prevJobId => {
-            let nextIndex = 0;
-            if (prevJobId) {
-              const currentIndex = successfulResults.findIndex(r => r.job_id === prevJobId);
-              if (currentIndex !== -1) {
-                nextIndex = (currentIndex + 1) % successfulResults.length;
-              }
-            }
-            return successfulResults[nextIndex].job_id;
-          });
-        } else {
-          throw new Error('No captures were successfully ingested.');
+      const results = payload.results || [];
+      const valid = results.filter(r => r.status === 'completed' || r.status === 'already_ingested');
+
+      if (valid.length > 0) {
+        let nextIdx = 0;
+        if (activeJobId) {
+          const curr = valid.findIndex(r => r.job_id === activeJobId);
+          if (curr !== -1) {
+            nextIdx = (curr + 1) % valid.length;
+          }
+        }
+        const nextJobId = valid[nextIdx].job_id;
+        setActiveJobId(nextJobId);
+
+        const rRes = await fetch(`/api/v1/results/${nextJobId}`);
+        if (rRes.ok) {
+          const rPayload = await rRes.json();
+          if (rPayload.status === 'completed') {
+            setAnalysisResult(rPayload);
+            setUploading(false);
+          }
         }
       } else {
-        throw new Error(payload.message || 'No captures were successfully ingested.');
+        throw new Error(payload.message || 'No captures available.');
       }
     } catch (e) {
       setUploadError(e.message);
+      setUploading(false);
     } finally {
       setIngesting(false);
     }
@@ -184,7 +194,6 @@ function MainSocApp() {
 
   const isRealData = Boolean(analysisResult && analysisResult.status === 'completed');
 
-  // Derive everything strictly from live analysis — no fallbacks or dummy values
   const data = isRealData ? {
     overall_score:
       analysisResult.summary?.overall_security_score === null
@@ -258,6 +267,7 @@ function MainSocApp() {
             activeJobId={activeJobId}
             onDownloadReport={handleDownloadReport}
             isRealData={isRealData}
+            onOpenRemediation={() => setRemediationOpen(true)}
           />
 
           {/* Upload error banner */}
@@ -318,12 +328,17 @@ function MainSocApp() {
           ) : (
             /* ── Dashboard ── */
             showEmpty ? (
-              <EmptyState onUploadPcap={handleUploadPcap} uploading={uploading} />
+              <div className="space-y-6">
+                <LiveTelemetryPanel />
+                <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl shadow-xs">
+                  <EmptyState onUploadPcap={handleUploadPcap} uploading={uploading} />
+                </div>
+              </div>
             ) : showAnalysing ? (
               <AnalysingState jobId={activeJobId} />
             ) : (
               <div className="space-y-6">
-                {/* Fallback Banner (Segment 8): Visible when control plane is absent */}
+                {/* Fallback Banner */}
                 {isRealData && !analysisResult?.control_plane && (
                   <div className="bg-amber-500/10 border-2 border-amber-500/40 text-amber-700 dark:text-amber-300 px-5 py-3.5 rounded-2xl text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
                     <div className="flex items-center gap-3">
@@ -343,7 +358,7 @@ function MainSocApp() {
                   </div>
                 )}
 
-                {/* Tunnel Connection & Live Negotiated Parameters Bar (Segments 3 & 5) */}
+                {/* Tunnel Connection & Live Negotiated Parameters Bar */}
                 {isRealData && (
                   <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
@@ -422,12 +437,19 @@ function MainSocApp() {
                     <SocSeverityDistribution threatMatrix={data.threat_matrix} />
                   </div>
                 </div>
-                {/* Row 4: Traffic Distribution */}
+
+                {/* Row 4: Live Telemetry & Sniffer Streaming */}
+                <LiveTelemetryPanel />
+
+                {/* Row 5: Explainable AI Threat Heatmap */}
+                <ThreatHeatmap jobId={activeJobId} />
+
+                {/* Row 6: Traffic Distribution */}
                 <div className="w-full">
                   <TrafficDistribution traffic={data.traffic_distribution} />
                 </div>
 
-                {/* Row 5: Tunnel breakdown */}
+                {/* Row 7: Tunnel breakdown */}
                 <div className="w-full">
                   <PerTunnelBreakdown tunnels={data.tunnels} />
                 </div>
@@ -436,6 +458,13 @@ function MainSocApp() {
           )}
         </div>
       </div>
+
+      {/* AI Hardening Remediation Modal */}
+      <RemediationModal
+        jobId={activeJobId}
+        isOpen={remediationOpen}
+        onClose={() => setRemediationOpen(false)}
+      />
     </div>
   );
 }
