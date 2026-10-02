@@ -6,6 +6,7 @@ Maps 1D-CNN neural activations (Grad-CAM & Integrated Gradients) back to genuine
 wire frames directly from the analyzed PCAP capture. Zero dummy or hardcoded values.
 """
 
+import asyncio
 import logging
 import subprocess
 from pathlib import Path
@@ -150,7 +151,7 @@ async def get_threat_localization(job_id: str, method: str = "grad_cam"):
     # 2. Extract authentic packet records directly from the PCAP
     records: List[ESPPacketRecord] = []
     if pcap_path and pcap_path.exists():
-        records = _extract_esp_records_from_pcap(pcap_path, max_records=45)
+        records = await asyncio.to_thread(_extract_esp_records_from_pcap, pcap_path, 45)
 
     # Check if stored result had pre-parsed records
     if not records and result:
@@ -179,15 +180,16 @@ async def get_threat_localization(job_id: str, method: str = "grad_cam"):
     if result:
         findings = result.get("threat_matrix") or result.get("findings", [])
 
-    # 3. Compute XAI saliency map (Grad-CAM 1D or Integrated Gradients)
-    localization = localize_threats(
+    # 3. Compute XAI saliency map (Grad-CAM 1D or Integrated Gradients) off main loop
+    localization = await asyncio.to_thread(
+        localize_threats,
         esp_records=records,
         findings=findings,
         xai_method=method,
     )
 
-    # 4. Check for replay attack duplicate sequence numbers
-    replay_alerts = detect_replay_attacks(records)
+    # 4. Check for replay attack duplicate sequence numbers off main loop
+    replay_alerts = await asyncio.to_thread(detect_replay_attacks, records)
     localization["replay_attacks"] = replay_alerts
 
     return {"job_id": job_id, "xai": localization}

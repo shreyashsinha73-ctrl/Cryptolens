@@ -1,5 +1,6 @@
 """API routes for AI-driven network remediation."""
 
+import asyncio
 from fastapi import APIRouter, HTTPException
 from backend.remediation.remediation_engine import RemediationEngine
 from backend.services.result_store import ResultStore
@@ -14,6 +15,7 @@ async def generate_remediation(job_id: str):
     """
     Generate hardened IPsec configuration based on audit findings.
     Requires a completed analysis job.
+    Uses asyncio.to_thread so LLM network calls do not block the event loop.
     """
     result = _store.load(job_id)
     if result is None:
@@ -29,7 +31,8 @@ async def generate_remediation(job_id: str):
             "Cannot generate remediation without IKE handshake analysis.",
         )
 
-    remediation = _engine.generate_remediation(
+    remediation = await asyncio.to_thread(
+        _engine.generate_remediation,
         findings=findings,
         control_plane=control_plane,
     )

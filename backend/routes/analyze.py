@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 import uuid
@@ -29,7 +30,7 @@ async def process_pcap_pipeline(job_id: str, file_path: Path):
         # Part 2 is now integrated through AnalyzerProvider.
         # The provider calls IkeParser.parse(), unwraps control_plane,
         # and normalizes parser output for the backend contract.
-        analysis_input = provider.get_analysis(str(file_path))
+        analysis_input = await asyncio.to_thread(provider.get_analysis, str(file_path))
 
         # Part 5: authoritative security scoring
         evaluation = scorer.evaluate(analysis_input)

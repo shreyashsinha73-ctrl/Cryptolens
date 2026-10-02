@@ -647,7 +647,7 @@ async def _run_simulation(job_id: str):
     packets: List[Dict[str, Any]] = []
     if target_pcap and target_pcap.exists():
         logger.info(f"Extracting real wire frames from PCAP: {target_pcap}")
-        packets = extract_packet_stream(target_pcap, max_packets=200)
+        packets = await asyncio.to_thread(extract_packet_stream, target_pcap, 200)
 
     if not packets:
         is_insecure = "3des" in str(job_id).lower() or "06" in str(job_id) or "05" in str(job_id)
@@ -695,7 +695,7 @@ async def _run_simulation(job_id: str):
                     "iats": list(iats_window),
                     "total_esp_packets": idx + 1,
                 }
-                classification = classify_traffic(esp_features)
+                classification = await asyncio.to_thread(classify_traffic, esp_features)
                 if stored_result and stored_result.get("summary"):
                     sec_score = stored_result["summary"].get("overall_security_score", 42 if is_insecure else 100)
                     risk_lvl = stored_result["summary"].get("risk_level", "CRITICAL" if is_insecure else "LOW")
@@ -746,7 +746,7 @@ async def _rolling_inference_loop():
             continue
 
         try:
-            classification = classify_traffic(cnn_input)
+            classification = await asyncio.to_thread(classify_traffic, cnn_input)
             payload = {
                 "type": "rolling_score",
                 "timestamp": time.time(),
