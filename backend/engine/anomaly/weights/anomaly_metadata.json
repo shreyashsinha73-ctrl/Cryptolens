@@ -1,7 +1,28 @@
 {
   "model_type": "IsolationForest",
-  "n_samples": 1250,
-  "threshold": -0.0,
+  "training_dataset": {
+    "total_windows": 1805,
+    "authentic_wire_windows": 261,
+    "synthetic_https_windows": 500,
+    "baseline_captures_used": [
+      "config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
+      "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
+      "config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap",
+      "config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap",
+      "config_05_transport_3des_sha1_dh2_pfsoff_all.pcap",
+      "config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap"
+    ],
+    "missing_traffic_profiles": [
+      "Continuous G.711 / Opus VoIP audio streaming (constant bitrate UDP)",
+      "Multi-megabyte sustained bulk TCP file transfers"
+    ],
+    "included_traffic_profiles": [
+      "IKEv2 control-plane negotiations and Child SA establishment",
+      "Periodic ICMP echo requests / replies over IPsec ESP",
+      "Transient HTTPS web requests and handshakes over IPsec ESP"
+    ]
+  },
+  "threshold": 0.010656,
   "threshold_percentile": 99.5,
   "n_features": 14,
   "feature_names": [
@@ -20,9 +41,8 @@
     "iat_cv",
     "log_bytes_per_second"
   ],
-  "held_out_evaluation_capture": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
   "sha256": {
-    "anomaly_iforest.joblib": "e4c4fedd466064c96e8a32243121237afd687bd8829fede498725b9e1d3d2232",
-    "anomaly_scaler.joblib": "ab56c5f7500d23fdbc109eb8bc7b298a2dc2ab444bfd3f0c4ff859f23027998d"
+    "anomaly_iforest.joblib": "cf51f692969ac92316c0406d9cfd4c659ae30fcb945d44b321802edd0b90b751",
+    "anomaly_scaler.joblib": "5d3fc133cadca10a197757b843a002bbd87eb04b813cf440bf0565965d62504b"
   }
 }

@@ -187,3 +187,45 @@ git push origin main
 ```
 Prior to push confirmation, the repository will remain local.
 
+---
+
+## 4. Anomaly Evaluation & Bound Audit (Item 1.5)
+
+### 4.1 Leave-One-File-Out (LOFO) Cross-Validation
+Cross-validation was executed across all six authentic baseline PCAP captures. For each fold, the Isolation Forest was trained on the remaining five baseline captures and evaluated on the held-out capture without window overlap. Upper bounds are calculated at 95% confidence using the exact Clopper-Pearson binomial formula:
+
+| Fold | Held-Out PCAP File | Evaluated Windows ($N$) | False Positives ($K$) | Empirical FPR ($K/N$) | 95% Clopper-Pearson Upper Bound | Calibrated Threshold |
+|---|---|---|---|---|---|---|
+| **Fold 1** | `config_01_tunnel_aes256gcm_dh19_pfson_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0106 |
+| **Fold 2** | `config_02_tunnel_aes128gcm_dh14_pfson_all.pcap` | 42 | 0 | 0.00% | **8.41%** | 0.0107 |
+| **Fold 3** | `config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap` | 43 | 0 | 0.00% | **8.22%** | 0.0106 |
+| **Fold 4** | `config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0105 |
+| **Fold 5** | `config_05_transport_3des_sha1_dh2_pfsoff_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0106 |
+| **Fold 6** | `config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0104 |
+
+**Integrity Clarification (No False "0% FPR"):**
+Although 0 false alarms were observed in each fold, claiming "0.00% FPR" on finite samples ($N=42\dots44$) is mathematically dishonest. As shown above, the 95% Clopper-Pearson upper confidence bound is **8.04% – 8.41%**.
+
+### 4.2 Labeled Anomaly Injection Recall
+Three distinct attack profiles were injected into baseline flow feature windows and evaluated against the calibrated model:
+
+| Anomaly Type | Attack Signature Description | Injected Windows | Detected Windows | Detection Recall |
+|---|---|---|---|---|
+| **Type 1** | Uniform Small Packets (Covert Beaconing: 64B, low jitter) | 44 | 44 | **100.00%** |
+| **Type 2** | Sustained High-Rate Large Packets (Exfiltration: 1480B, IAT=0.0005s) | 44 | 44 | **100.00%** |
+| **Type 3** | Burst Flooding (Microbursts / DoS: 70B, burst ratio > 15) | 44 | 44 | **100.00%** |
+
+### 4.3 Missing Baseline Traffic Profiles
+Audit of authentic baseline PCAPs reveals that testbed captures consist primarily of IKE negotiations, periodic ICMP echoes (162B ESP payloads), and short HTTP handshakes.
+**Explicit Limitations / Missing Profiles:**
+1. **Continuous VoIP audio streams** (e.g. constant-bitrate G.711 / Opus RTP sessions) are **not present** in baseline PCAPs.
+2. **Sustained multi-megabyte bulk TCP transfers** are **not present** in baseline PCAPs.
+Rather than fabricating synthetic data into the training set to mask this absence, these missing distributions are explicitly acknowledged as operational boundaries requiring site-specific baseline profiling.
+
+### 4.4 Shipped Model Manifest & Parity
+The shipped production model was retrained across all 6 baseline captures and persisted at `backend/engine/anomaly/weights/`:
+- `anomaly_iforest.joblib` SHA-256: `cf51f692969ac92316c0406d9cfd4c659ae30fcb945d44b321802edd0b90b751`
+- `anomaly_scaler.joblib` SHA-256: `5d3fc133cadca10a197757b843a002bbd87eb04b813cf440bf0565965d62504b`
+- Manifest: `backend/engine/anomaly/weights/anomaly_metadata.json`
+
+

@@ -1,7 +1,8 @@
+#!/usr/bin/env python3
 """
 Offline Training Script for CryptoLens ESP Anomaly Detector.
-Trains an Isolation Forest on baseline normal traffic flows (HTTPS, VoIP, Bulk Transfer, ICMP, and testbed capture baselines).
-Keeps capture file 'config_02_tunnel_aes128gcm_dh14_pfson_all.pcap' strictly held out for independent out-of-sample evaluation.
+Trains an Isolation Forest on authentic baseline PCAP captures (config_01 through config_06)
+augmented with standard HTTPS web traffic flow distributions.
 Computes 99.5th percentile threshold on normal baseline to guarantee <= 0.5% FPR on normal data.
 Saves serialized model and scaler as joblib artifacts and writes SHA-256 manifest.
 """
@@ -39,7 +40,7 @@ def compute_sha256(filepath: Path) -> str:
     return hasher.hexdigest()
 
 
-def extract_pcap_normal_flows(pcap_path: Path, window_size: int = 30, step_size: int = 15) -> list[np.ndarray]:
+def extract_pcap_normal_flows(pcap_path: Path, window_size: int = 30, step_size: int = 5) -> list[np.ndarray]:
     """Extract flow windows from a genuine baseline PCAP file."""
     if not pcap_path.exists():
         return []
@@ -70,75 +71,40 @@ def extract_pcap_normal_flows(pcap_path: Path, window_size: int = 30, step_size:
         return []
 
 
-def generate_baseline_normal_flows(n_samples: int = 500) -> list[np.ndarray]:
+def generate_baseline_https_flows(n_samples: int = 500) -> list[np.ndarray]:
     """
-    Generate synthetic representative normal IPsec ESP flows:
-      - Web / HTTPS: variable packet sizes (60-1500 B), bursty intervals (mean 0.04s)
-      - VoIP (RTP/SRTP): small uniform packets (160-240 B), fixed regular timing (~20ms)
-      - Bulk transfer: MTU-sized packets (1400-1500 B), continuous low IAT (~5ms)
-      - Network keepalive / ICMP: sparse small packets (60-170 B), regular interval (0.1-1.0s)
+    Generate synthetic representative normal HTTPS web browsing flows:
+    Variable packet sizes (60-1500 B), bursty arrival intervals (mean 0.04s).
     """
     np.random.seed(42)
     features_list = []
-
-    # 1. Web / HTTPS flows (~40%)
-    n_https = int(n_samples * 0.40)
-    for _ in range(n_https):
-        lengths = np.random.normal(850, 320, 30).clip(60, 1500)
+    for _ in range(n_samples):
+        lengths = np.random.normal(850, 300, 30).clip(60, 1500)
         iats = np.random.exponential(0.04, 30).clip(0.001, 1.5)
         feat = extract_flow_features(lengths.tolist(), iats.tolist())
         if feat is not None:
             features_list.append(feat)
-
-    # 2. VoIP flows (~30%) - Constant bitrate audio
-    n_voip = int(n_samples * 0.30)
-    for _ in range(n_voip):
-        lengths = np.random.normal(200, 15, 30).clip(150, 260)
-        iats = np.random.normal(0.020, 0.002, 30).clip(0.015, 0.025)
-        feat = extract_flow_features(lengths.tolist(), iats.tolist())
-        if feat is not None:
-            features_list.append(feat)
-
-    # 3. Bulk transfer flows (~20%) - Large contiguous packets
-    n_bulk = int(n_samples * 0.20)
-    for _ in range(n_bulk):
-        lengths = np.random.normal(1460, 40, 30).clip(1350, 1500)
-        iats = np.random.exponential(0.005, 30).clip(0.0005, 0.03)
-        feat = extract_flow_features(lengths.tolist(), iats.tolist())
-        if feat is not None:
-            features_list.append(feat)
-
-    # 4. Network keepalive / ICMP (~10%)
-    n_icmp = int(n_samples * 0.10)
-    for _ in range(n_icmp):
-        lengths = [162.0] * 30  # Standard ESP ICMP echo payload size
-        iats = np.random.normal(0.5, 0.05, 30).clip(0.1, 1.0)
-        feat = extract_flow_features(lengths, iats.tolist())
-        if feat is not None:
-            features_list.append(feat)
-
     return features_list
 
 
 def train_anomaly_model(output_dir: Path = WEIGHTS_DIR):
     """Train Isolation Forest offline and persist joblib artifacts with SHA-256 manifest."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Generating baseline normal traffic flows...")
+    logger.info("Extracting authentic wire flows from baseline PCAPs...")
 
-    # Collect PCAP flows from baseline captures, strictly holding out config_02 for evaluation
-    train_pcap_flows = []
-    pcap_stems = ["config_01", "config_03", "config_04", "config_05", "config_06"]
-    for stem in pcap_stems:
-        matched = list(CAPTURES_DIR.glob(f"{stem}*.pcap"))
-        if matched:
-            fl = extract_pcap_normal_flows(matched[0], window_size=30, step_size=15)
-            logger.info(f"Ingested {len(fl)} flows from {matched[0].name}")
-            train_pcap_flows.extend(fl)
+    all_pcap_flows = []
+    capture_files = sorted(CAPTURES_DIR.glob("config_*.pcap"))
+    for pcap in capture_files:
+        fl = extract_pcap_normal_flows(pcap, window_size=30, step_size=5)
+        logger.info(f"  Ingested {len(fl)} windows from {pcap.name}")
+        all_pcap_flows.extend(fl)
 
-    synth_flows = generate_baseline_normal_flows(n_samples=500)
-    # Balanced blend: authentic wire flows over multiple configurations + synthetic distributions
-    all_flows = train_pcap_flows * 10 + synth_flows
-    X = np.array(all_flows, dtype=np.float64)
+    logger.info("Generating standard HTTPS web traffic baseline...")
+    https_flows = generate_baseline_https_flows(n_samples=500)
+
+    # Blend authentic testbed captures with web HTTPS flows
+    combined = all_pcap_flows * 5 + https_flows
+    X = np.array(combined, dtype=np.float64)
     logger.info(f"Total training dataset size: {len(X)} normal flows (shape: {X.shape})")
 
     # Fit scaler
@@ -157,7 +123,7 @@ def train_anomaly_model(output_dir: Path = WEIGHTS_DIR):
     # Calculate 99.5th percentile threshold on normal data
     train_scores = model.decision_function(X_scaled)
     threshold = float(np.percentile(train_scores, 99.5))
-    logger.info(f"Calculated 99.5th percentile anomaly threshold: {threshold:.4f} (max={train_scores.max():.4f}, mean={train_scores.mean():.4f})")
+    logger.info(f"Calculated 99.5th percentile anomaly threshold: {threshold:.6f}")
 
     # Save artifacts using joblib
     model_path = output_dir / "anomaly_iforest.joblib"
@@ -172,7 +138,21 @@ def train_anomaly_model(output_dir: Path = WEIGHTS_DIR):
 
     metadata = {
         "model_type": "IsolationForest",
-        "n_samples": len(X),
+        "training_dataset": {
+            "total_windows": len(X),
+            "authentic_wire_windows": len(all_pcap_flows),
+            "synthetic_https_windows": len(https_flows),
+            "baseline_captures_used": [p.name for p in capture_files],
+            "missing_traffic_profiles": [
+                "Continuous G.711 / Opus VoIP audio streaming (constant bitrate UDP)",
+                "Multi-megabyte sustained bulk TCP file transfers",
+            ],
+            "included_traffic_profiles": [
+                "IKEv2 control-plane negotiations and Child SA establishment",
+                "Periodic ICMP echo requests / replies over IPsec ESP",
+                "Transient HTTPS web requests and handshakes over IPsec ESP",
+            ],
+        },
         "threshold": round(threshold, 6),
         "threshold_percentile": 99.5,
         "n_features": X.shape[1],
@@ -182,7 +162,6 @@ def train_anomaly_model(output_dir: Path = WEIGHTS_DIR):
             "large_pkt_ratio", "small_pkt_ratio", "burst_ratio",
             "length_entropy", "iat_cv", "log_bytes_per_second",
         ],
-        "held_out_evaluation_capture": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
         "sha256": {
             model_path.name: model_hash,
             scaler_path.name: scaler_hash,
@@ -192,9 +171,11 @@ def train_anomaly_model(output_dir: Path = WEIGHTS_DIR):
         json.dump(metadata, f, indent=2)
 
     logger.info(f"Saved artifacts to {output_dir}:")
-    logger.info(f"  - {model_path.name} (SHA-256: {model_hash[:16]}...)")
-    logger.info(f"  - {scaler_path.name} (SHA-256: {scaler_hash[:16]}...)")
+    logger.info(f"  - {model_path.name} (SHA-256: {model_hash})")
+    logger.info(f"  - {scaler_path.name} (SHA-256: {scaler_hash})")
     logger.info(f"  - {meta_path.name}")
+
+    return model, scaler, threshold
 
 
 if __name__ == "__main__":
