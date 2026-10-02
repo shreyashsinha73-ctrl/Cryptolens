@@ -90,11 +90,9 @@ def test_schema_validation():
     try:
         ModeInferenceResult(predicted_mode="tunnel", confidence=1.5)
         logger.error("  ✗ Should have rejected confidence > 1.0")
-        return False
+        assert False, "Should have rejected confidence > 1.0"
     except ValueError:
         logger.info("  ✓ Schema correctly rejected invalid confidence")
-
-    return True
 
 
 def test_gemini_client_config():
@@ -115,7 +113,6 @@ def test_gemini_client_config():
         logger.warning("  ⚠ API key not configured (expected for unit test)")
 
     logger.info("  ✓ GeminiClientConfig validated")
-    return True
 
 
 def test_gemini_client_initialization():
@@ -126,7 +123,6 @@ def test_gemini_client_initialization():
     client = GeminiClient(config)
     assert client.config.model is not None
     logger.info(f"  ✓ GeminiClient initialized with model: {client.config.model}")
-    return True
 
 
 def test_agreement_check_logic():
@@ -182,8 +178,6 @@ def test_agreement_check_logic():
         f"  ✓ Confidence averaging: ({0.85} + {0.90}) / 2 = {agreement.api_avg_confidence}"
     )
 
-    return True
-
 
 def test_response_parsing():
     """Test JSON response parsing from mock Gemini response."""
@@ -214,8 +208,6 @@ def test_response_parsing():
     parsed2 = GeminiClient._parse_api_response(raw_json)
     assert parsed2["mode"] == "transport"
     logger.info("  ✓ Parsed raw JSON correctly")
-
-    return True
 
 
 def test_metrics_structure():
@@ -274,8 +266,6 @@ def test_metrics_structure():
     logger.info(
         f"    Avg confidence: {metrics['confidence_stats']['mode']['mean']:.2f}"
     )
-
-    return True
 
 
 def main():
