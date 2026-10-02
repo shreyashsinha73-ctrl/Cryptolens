@@ -1,5 +1,5 @@
-{# CryptoLens Hardened Configuration Template #}
-{# Standard: NIST SP 800-77 Rev. 1 / NSA CNSA 2.0 #}
+# CryptoLens Hardened Configuration Template
+# Standard: NIST SP 800-77 Rev. 1 / NSA CNSA 1.0 (Transitionary)
 connections {
     {{ connection_name | default("hardened-tunnel") }} {
         version = {{ ike_version | default(2) }}
