@@ -34,14 +34,26 @@ export function useLiveTelemetry() {
             case 'connection_ack':
               break;
             case 'esp_event':
-              setEspEvents((prev) => [...prev.slice(-999), data]);
-              setWireEvents((prev) => [...prev.slice(-1999), data]);
+              setEspEvents((prev) => {
+                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
+                return [...prev.slice(-999), data];
+              });
+              setWireEvents((prev) => {
+                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
+                return [...prev.slice(-1999), data];
+              });
               setIsStreaming(true);
               setStreamCompleted(false);
               break;
             case 'ike_event':
-              setIkeEvents((prev) => [...prev.slice(-499), data]);
-              setWireEvents((prev) => [...prev.slice(-1999), data]);
+              setIkeEvents((prev) => {
+                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
+                return [...prev.slice(-499), data];
+              });
+              setWireEvents((prev) => {
+                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
+                return [...prev.slice(-1999), data];
+              });
               setIsStreaming(true);
               setStreamCompleted(false);
               break;
@@ -51,7 +63,10 @@ export function useLiveTelemetry() {
             case 'web_event':
             case 'wire_packet':
             case 'inner_event':
-              setWireEvents((prev) => [...prev.slice(-1999), data]);
+              setWireEvents((prev) => {
+                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
+                return [...prev.slice(-1999), data];
+              });
               setIsStreaming(true);
               setStreamCompleted(false);
               break;

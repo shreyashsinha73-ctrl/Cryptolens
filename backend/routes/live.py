@@ -299,12 +299,14 @@ async def live_telemetry(websocket: WebSocket):
 
         while True:
             try:
-                await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
+                await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
             except asyncio.TimeoutError:
                 pass
-            await asyncio.sleep(0.05)
-
-    except WebSocketDisconnect:
+            except (WebSocketDisconnect, Exception):
+                break
+    except Exception as e:
+        logger.debug(f"WebSocket session closed: {e}")
+    finally:
         ws_manager.disconnect(websocket)
 
 
