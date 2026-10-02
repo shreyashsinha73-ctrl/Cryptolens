@@ -55,6 +55,11 @@ class DataPlaneCNN(nn.Module):
             nn.Linear(32, n_traffic_classes),
         )
 
+    @property
+    def last_conv(self) -> nn.Module:
+        """Returns the last convolutional layer in the trunk (for Grad-CAM targeting)."""
+        return self.trunk[3]
+
     def forward(self, x):
         """
         x: (batch, 2, seq_len) float tensor, channel 0 = S_L, channel 1 = S_IAT

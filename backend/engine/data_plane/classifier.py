@@ -19,6 +19,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Union
 
+from backend.engine.data_plane.preprocessing import preprocess_features, get_normalization_stats
+
 # Allowed label values per project specification
 VALID_MODES = {"tunnel", "transport", "unknown"}
 VALID_TRAFFIC_TYPES = {"https", "voip", "icmp", "unknown"}
@@ -95,11 +97,11 @@ def _get_onnx_session():
 
         _ONNX_SESSION = ort.InferenceSession(str(model_path))
 
+        _NORM_MEAN, _NORM_STD = get_normalization_stats()
+
         if metrics_path.exists():
             with open(metrics_path, "r") as f:
                 meta = json.load(f)
-            _NORM_MEAN = np.array(meta.get("normalization_mean", [362.43, 0.13]), dtype=np.float32).reshape(1, 2, 1)
-            _NORM_STD = np.array(meta.get("normalization_std", [450.83, 0.25]), dtype=np.float32).reshape(1, 2, 1)
 
             # F-05: read per-class F1 from validation report to calibrate confidence.
             # metrics.json stores sklearn classification_report output_dict=True.
@@ -115,8 +117,6 @@ def _get_onnx_session():
                 for cls in ["https", "voip", "icmp"]
             ]
         else:
-            _NORM_MEAN = np.array([362.43, 0.13], dtype=np.float32).reshape(1, 2, 1)
-            _NORM_STD = np.array([450.83, 0.25], dtype=np.float32).reshape(1, 2, 1)
             # No metrics.json: no calibration ceiling, pass through raw softmax.
             _MODE_CALIBRATION = []
             _TRAFFIC_CALIBRATION = []
@@ -126,15 +126,10 @@ def _get_onnx_session():
 
 def _classify_via_cnn(esp_features: Dict[str, Any]) -> Dict[str, Any]:
     import numpy as np
-    session, mean, std = _get_onnx_session()
+    session, _, _ = _get_onnx_session()
     s_l, s_iat, packet_count = _extract_sequences(esp_features)
 
-    seq_len = 30
-    s_l_padded = (list(s_l)[:seq_len] + [0.0] * seq_len)[:seq_len]
-    s_iat_padded = (list(s_iat)[:seq_len] + [0.0] * seq_len)[:seq_len]
-
-    x = np.array([s_l_padded, s_iat_padded], dtype=np.float32).reshape(1, 2, seq_len)
-    x_norm = (x - mean) / (std + 1e-8)
+    x_norm, _ = preprocess_features(s_l, s_iat, target_len=30)
 
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: x_norm})

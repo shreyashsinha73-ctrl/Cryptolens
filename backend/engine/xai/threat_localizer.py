@@ -12,11 +12,9 @@ from typing import Optional
 from backend.engine.xai.saliency import grad_cam_1d, integrated_gradients_1d
 from backend.streaming.live_sniffer import ESPPacketRecord
 
-logger = logging.getLogger(__name__)
+from backend.engine.data_plane.preprocessing import preprocess_features
 
-# Normalization constants (from metrics.json)
-NORM_MEAN = np.array([362.43, 0.13], dtype=np.float32).reshape(1, 2, 1)
-NORM_STD = np.array([450.83, 0.25], dtype=np.float32).reshape(1, 2, 1)
+logger = logging.getLogger(__name__)
 
 
 def localize_threats(
@@ -37,22 +35,16 @@ def localize_threats(
         }
 
     seq_len = 30
-    lengths = [r.packet_length for r in esp_records][:seq_len]
+    sub_records = esp_records[:seq_len]
+    lengths = [r.packet_length for r in sub_records]
     iats = []
-    for i in range(len(esp_records[:seq_len])):
+    for i in range(len(sub_records)):
         if i == 0:
             iats.append(0.0)
         else:
-            iats.append(esp_records[i].timestamp - esp_records[i - 1].timestamp)
+            iats.append(sub_records[i].timestamp - sub_records[i - 1].timestamp)
 
-    while len(lengths) < seq_len:
-        lengths.append(0.0)
-    while len(iats) < seq_len:
-        iats.append(0.0)
-
-    raw = np.array([[lengths, iats]], dtype=np.float32)  # (1, 2, 30)
-    normalized = (raw - NORM_MEAN) / (NORM_STD + 1e-8)
-    input_tensor = torch.tensor(normalized, dtype=torch.float32)
+    _, input_tensor = preprocess_features(lengths, iats, target_len=seq_len)
 
     if xai_method == "integrated_gradients":
         xai_result = integrated_gradients_1d(input_tensor, target_head="mode")
