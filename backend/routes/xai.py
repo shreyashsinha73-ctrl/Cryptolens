@@ -18,6 +18,7 @@ from backend.engine.xai.threat_localizer import localize_threats, detect_replay_
 from backend.streaming.live_sniffer import ESPPacketRecord
 from backend.services.result_store import ResultStore
 from backend.capture.pcap_utils import find_pcap_for_job, get_tshark_binary
+from backend.core.security import validate_job_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -138,6 +139,7 @@ async def get_threat_localization(
     Extracts authentic wire frames directly from the analyzed PCAP and computes
     per-packet saliency and risk attribution.
     """
+    job_id = validate_job_id(job_id)
     result = None
     if _store.exists(job_id):
         result = _store.load(job_id)

@@ -1,3 +1,4 @@
+import os
 from dotenv import load_dotenv
 load_dotenv()
 from fastapi import FastAPI, Request
@@ -11,9 +12,18 @@ app = FastAPI(
     docs_url="/docs"
 )
 
+# CORS configuration (P2-1): restrictive by default, never wildcard in prod
+frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+allow_all = os.getenv("ALLOW_ALL_ORIGINS", "false").lower() in ("true", "1")
+origins = ["*"] if allow_all else [
+    frontend_origin,
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,3 +43,9 @@ app.include_router(capture.router, prefix="/api/v1", tags=["Capture"])
 app.include_router(live.router, tags=["Live Streaming"])
 app.include_router(remediation.router, tags=["Remediation"])
 app.include_router(xai.router, tags=["XAI"])
+
+if __name__ == "__main__":
+    import uvicorn
+    host = os.getenv("HOST", "127.0.0.1")  # Default to 127.0.0.1 (P2-1)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host=host, port=port)

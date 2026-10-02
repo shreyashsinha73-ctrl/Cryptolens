@@ -17,7 +17,8 @@ from collections import deque
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Request, HTTPException
+from backend.core.security import verify_api_auth, validate_job_id, validate_interface
 
 from backend.streaming.live_sniffer import LiveSniffer, ESPPacketRecord, IKEPacketRecord
 from backend.streaming.ws_broadcaster import ws_manager
@@ -434,12 +435,34 @@ async def _stop_all_active_internal() -> bool:
 
 
 @router.post("/api/v1/live/start")
-async def start_live_capture(interface: str = Query(default="any")):
+async def start_live_capture(request: Request, interface: str = Query(default="any")):
     """
     Start the real-time packet sniffer on a network interface.
     Uses bounded thread-safe queue and batched flusher for non-blocking cross-thread telemetry.
     Thread-safe and idempotent under concurrent calls via _lifecycle_lock.
+    Requires API authentication and validated network interface.
     """
+    verify_api_auth(request)
+    interface = validate_interface(interface)
+
+    # P2-2 Non-root preflight check
+    if interface != "simulated":
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+            s.close()
+        except PermissionError:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Permission denied opening raw socket for live sniffing. "
+                    "Grant required Linux capabilities with: "
+                    "sudo setcap cap_net_raw,cap_net_admin=eip $(readlink -f $(which python3))"
+                ),
+            )
+        except Exception as e:
+            logger.debug(f"Preflight raw socket check: {e}")
+
     global _sniffer, _flusher_task, _inference_task, _current_stream_id
 
     async with _lifecycle_lock:
@@ -519,8 +542,9 @@ async def start_live_capture(interface: str = Query(default="any")):
 
 
 @router.post("/api/v1/live/stop")
-async def stop_live_capture():
+async def stop_live_capture(request: Request):
     """Stop the real-time packet sniffer, simulation, or active injection."""
+    verify_api_auth(request)
     global _current_stream_id
     async with _lifecycle_lock:
         stopped = await _stop_all_active_internal()
@@ -544,12 +568,13 @@ async def get_live_status():
 
 
 @router.post("/api/v1/live/inject/{profile}")
-async def inject_traffic(profile: str):
+async def inject_traffic(profile: str, request: Request):
     """
     Inject authentic IPsec traffic profiles into the live pipeline:
       - 'hardened': AES-256-GCM, DH 19, PFS ON, monotonic sequence numbers.
       - 'vulnerable': 3DES-CBC, DH 2, PFS OFF, Sweet32 64-bit alignment, and duplicate sequence Replay Attacks.
     """
+    verify_api_auth(request)
     global _injection_task, _current_stream_id
 
     profile_norm = profile.lower()
@@ -659,6 +684,11 @@ async def simulate_live_capture(
     Thread-safe and idempotent under concurrent calls via _lifecycle_lock.
     """
     global _simulation_task, _current_stream_id
+
+    if job_id and isinstance(job_id, str):
+        job_id = validate_job_id(job_id)
+    if config_id and isinstance(config_id, str):
+        config_id = validate_job_id(config_id)
 
     async with _lifecycle_lock:
         await _stop_all_active_internal()

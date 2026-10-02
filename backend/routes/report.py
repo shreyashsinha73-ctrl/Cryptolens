@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 from backend.schemas.analysis import ErrorResponse
 from backend.services.result_store import ResultStore
 from backend.reporting.generate_pdf import generate_pdf
+from backend.core.security import validate_job_id
 
 
 router = APIRouter()
@@ -19,6 +20,7 @@ result_store = ResultStore()
     }
 )
 async def download_pdf(job_id: str, type: str = "executive"):
+    job_id = validate_job_id(job_id)
     try:
         result = result_store.load(job_id)
 

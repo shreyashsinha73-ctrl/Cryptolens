@@ -13,6 +13,8 @@ class ResultStore:
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_path(self, job_id: str) -> Path:
+        if not job_id or ".." in job_id or "/" in job_id or "\\" in job_id or "\0" in job_id:
+            raise ValueError(f"Invalid job_id '{job_id}': path traversal or illegal characters detected")
         return self.results_dir / f"{job_id}.json"
 
     def save(self, job_id: str, result: Dict[str, Any]) -> None:

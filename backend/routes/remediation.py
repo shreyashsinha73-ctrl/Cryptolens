@@ -2,9 +2,10 @@
 
 import asyncio
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from backend.remediation.remediation_engine import RemediationEngine
 from backend.services.result_store import ResultStore
+from backend.core.security import verify_api_auth, validate_job_id
 
 router = APIRouter()
 _engine = RemediationEngine()
@@ -14,6 +15,7 @@ _store = ResultStore()
 @router.post("/api/v1/remediate/{job_id}")
 async def generate_remediation(
     job_id: str,
+    request: Request,
     local_subnet: Optional[str] = None,
     remote_subnet: Optional[str] = None,
     local_id: Optional[str] = None,
@@ -26,7 +28,13 @@ async def generate_remediation(
     when missing from captured control-plane handshake.
     Uses asyncio.to_thread so LLM network calls do not block the event loop.
     """
-    result = _store.load(job_id)
+    verify_api_auth(request)
+    job_id = validate_job_id(job_id)
+    try:
+        result = _store.load(job_id)
+    except (FileNotFoundError, ValueError):
+        result = None
+
     if result is None:
         raise HTTPException(404, f"Job {job_id} not found.")
 

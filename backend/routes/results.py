@@ -5,8 +5,7 @@ from backend.schemas.analysis import (
     ErrorResponse,
 )
 from backend.services.result_store import ResultStore
-
-
+from backend.core.security import validate_job_id
 
 
 router = APIRouter()
@@ -19,6 +18,7 @@ result_store = ResultStore()
     responses={404: {"model": ErrorResponse}}
 )
 async def get_results(job_id: str):
+    job_id = validate_job_id(job_id)
     try:
         data = result_store.load(job_id)
     except FileNotFoundError:
