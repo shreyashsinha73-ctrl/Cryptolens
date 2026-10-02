@@ -23,7 +23,7 @@ NON_ESP_MARKER = b"\x00\x00\x00\x00"
 
 @dataclass
 class ESPPacketRecord:
-    """Single wire packet metadata record (ESP, IKE, ICMP, DNS, TCP, VoIP, etc.)."""
+    """Single ESP packet metadata record."""
     timestamp: float
     frame_number: int
     src_ip: str
@@ -31,8 +31,6 @@ class ESPPacketRecord:
     packet_length: int
     spi: Optional[str] = None
     seq_num: Optional[int] = None
-    protocol: str = "ESP"
-    packet_type: str = "ESP"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -43,8 +41,6 @@ class ESPPacketRecord:
             "packet_length": self.packet_length,
             "spi": self.spi,
             "seq_num": self.seq_num,
-            "protocol": self.protocol,
-            "packet_type": self.packet_type,
         }
 
 

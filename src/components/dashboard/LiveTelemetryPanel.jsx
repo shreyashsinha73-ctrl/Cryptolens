@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Card from '../common/Card.jsx';
 import { useLiveTelemetry } from '../../hooks/useLiveTelemetry';
 
@@ -38,7 +38,9 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
   } = useLiveTelemetry();
 
   const [wireFilter, setWireFilter] = useState('all');
+  const [sortOrder, setSortOrder] = useState('desc'); // 'desc' (newest first) or 'asc' (oldest first)
   const [selectedPacket, setSelectedPacket] = useState(null);
+  const scrollRef = useRef(null);
 
   // Reset stream counter, wire events, and inspection state whenever a new PCAP is ingested or uploaded
   useEffect(() => {
@@ -56,12 +58,22 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
     }
   };
 
+  const scrollToTop = () => {
+    if (scrollRef.current) scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToBottom = () => {
+    if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  };
+
   const filteredWire = wireEvents.filter((pkt) => {
     if (wireFilter === 'esp') return pkt.protocol === 'ESP' || pkt.packet_type?.includes('ESP');
     if (wireFilter === 'ike') return pkt.protocol === 'IKE' || pkt.packet_type?.includes('IKE');
     if (wireFilter === 'anomaly') return pkt.severity === 'CRITICAL' || pkt.severity === 'WARNING' || pkt.severity === 'MEDIUM' || pkt.is_replay;
     return true;
   });
+
+  const displayedWire = sortOrder === 'desc' ? [...filteredWire].reverse() : filteredWire;
 
   return (
     <Card
@@ -317,152 +329,184 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
       {/* Multi-Protocol Live Wire Ingest Feed */}
       <div className="rounded-xl bg-gray-950 text-gray-200 p-4 border border-gray-800">
         <div className="flex flex-wrap items-center justify-between pb-3 mb-2 border-b border-gray-800 gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-mono text-xs text-gray-300 uppercase tracking-wider font-bold">
               Multi-Protocol Live Wire Feed
             </span>
             <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-400">
-              {wireEvents.length} frames ingested
+              {displayedWire.length} / {wireEvents.length} frames visible
             </span>
-            <span className="text-[10px] text-gray-500 ml-2 hidden sm:inline">
-              (Click any packet row to inspect full metadata)
+            <span className="text-[10px] text-gray-500 hidden lg:inline">
+              (Click any packet to inspect full metadata)
             </span>
           </div>
 
-          {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 text-xs font-mono">
+          {/* Filter Pills, Order Toggle & Jump Buttons */}
+          <div className="flex items-center gap-2 flex-wrap text-xs font-mono">
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1 bg-gray-900 p-0.5 rounded-lg border border-gray-800">
+              <button
+                onClick={() => setWireFilter('all')}
+                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                  wireFilter === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                All ({wireEvents.length})
+              </button>
+              <button
+                onClick={() => setWireFilter('esp')}
+                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                  wireFilter === 'esp'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                ESP ({espEvents.length})
+              </button>
+              <button
+                onClick={() => setWireFilter('ike')}
+                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                  wireFilter === 'ike'
+                    ? 'bg-purple-600 text-white'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                IKE ({ikeEvents.length})
+              </button>
+              <button
+                onClick={() => setWireFilter('anomaly')}
+                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                  wireFilter === 'anomaly'
+                    ? 'bg-rose-600 text-white'
+                    : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                Anomalies ({wireEvents.filter(p => p.severity === 'CRITICAL' || p.severity === 'WARNING' || p.severity === 'MEDIUM' || p.is_replay).length})
+              </button>
+            </div>
+
+            {/* Sort Order Toggle */}
             <button
-              onClick={() => setWireFilter('all')}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                wireFilter === 'all'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-              }`}
+              onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-gray-900 border border-gray-800 text-gray-300 hover:text-white hover:border-gray-700 transition cursor-pointer flex items-center gap-1"
+              title="Toggle packet ordering"
             >
-              All ({wireEvents.length})
+              <span>{sortOrder === 'desc' ? '▼ Newest First' : '▲ Frame #1 First'}</span>
             </button>
-            <button
-              onClick={() => setWireFilter('esp')}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                wireFilter === 'esp'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              ESP ({espEvents.length})
-            </button>
-            <button
-              onClick={() => setWireFilter('ike')}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                wireFilter === 'ike'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              IKE ({ikeEvents.length})
-            </button>
-            <button
-              onClick={() => setWireFilter('anomaly')}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                wireFilter === 'anomaly'
-                  ? 'bg-rose-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              Anomalies ({wireEvents.filter(p => p.severity === 'CRITICAL' || p.severity === 'WARNING' || p.severity === 'MEDIUM' || p.is_replay).length})
-            </button>
+
+            {/* Scroll Navigation Buttons */}
+            {displayedWire.length > 10 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={scrollToTop}
+                  className="px-2 py-1 rounded-md text-[10px] font-bold bg-gray-900 border border-gray-800 text-gray-400 hover:text-white transition cursor-pointer"
+                  title="Scroll to top"
+                >
+                  ↑ Top
+                </button>
+                <button
+                  onClick={scrollToBottom}
+                  className="px-2 py-1 rounded-md text-[10px] font-bold bg-gray-900 border border-gray-800 text-gray-400 hover:text-white transition cursor-pointer"
+                  title="Scroll to bottom"
+                >
+                  ↓ Bottom
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Color-Coded Wire Packets Table (Red=Critical, Orange=Medium, Green=Secure/Low) */}
-        <div className="font-mono text-xs space-y-1.5 min-h-[380px] max-h-[550px] overflow-y-auto pr-1">
-          {filteredWire.length === 0 ? (
+        <div
+          ref={scrollRef}
+          className="font-mono text-xs space-y-1.5 min-h-[380px] max-h-[600px] overflow-y-auto pr-1 scroll-smooth"
+        >
+          {displayedWire.length === 0 ? (
             <div className="text-gray-500 italic py-16 text-center">
               No wire traffic captured. Click &quot;Simulate Stream&quot; or &quot;Live Sniff&quot; to begin.
             </div>
           ) : (
-            filteredWire
-              .slice(-50)
-              .reverse()
-              .map((pkt, idx) => {
-                const isCrit = pkt.severity === 'CRITICAL' || pkt.is_replay;
-                const isWarn = pkt.severity === 'WARNING' || pkt.severity === 'MEDIUM';
-                const isLow = !isCrit && !isWarn;
-                const isSelected = selectedPacket?.frame_number === pkt.frame_number;
+            displayedWire.map((pkt, idx) => {
+              const isCrit = pkt.severity === 'CRITICAL' || pkt.is_replay;
+              const isWarn = pkt.severity === 'WARNING' || pkt.severity === 'MEDIUM';
+              const isLow = !isCrit && !isWarn;
+              const isSelected = selectedPacket?.frame_number === pkt.frame_number;
 
-                return (
-                  <div
-                    key={idx}
-                    onClick={() => setSelectedPacket(pkt)}
-                    className={`flex items-center justify-between py-1.5 px-3 rounded-lg transition cursor-pointer ${
-                      isSelected
-                        ? 'ring-2 ring-blue-500'
-                        : ''
-                    } ${
-                      isCrit
-                        ? 'bg-red-500/15 border border-red-500/40 text-red-300 hover:bg-red-500/25'
-                        : isWarn
-                        ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
-                        : 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-gray-400 text-[11px] font-bold w-10 shrink-0">
-                        #{pkt.frame_number || idx + 1}
+              return (
+                <div
+                  key={pkt.frame_number !== undefined ? `${pkt.frame_number}-${idx}` : idx}
+                  onClick={() => setSelectedPacket(pkt)}
+                  className={`flex items-center justify-between py-1.5 px-3 rounded-lg transition cursor-pointer ${
+                    isSelected
+                      ? 'ring-2 ring-blue-500'
+                      : ''
+                  } ${
+                    isCrit
+                      ? 'bg-red-500/15 border border-red-500/40 text-red-300 hover:bg-red-500/25'
+                      : isWarn
+                      ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                      : 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-gray-400 text-[11px] font-bold w-10 shrink-0 font-mono">
+                      #{pkt.frame_number !== undefined ? pkt.frame_number : idx + 1}
+                    </span>
+
+                    {/* Status / Severity Tag */}
+                    <span
+                      className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                        isCrit
+                          ? 'bg-red-500 text-white'
+                          : isWarn
+                          ? 'bg-amber-500 text-gray-950 font-extrabold'
+                          : 'bg-emerald-500/30 text-emerald-300'
+                      }`}
+                    >
+                      {isCrit ? 'CRITICAL' : isWarn ? 'MEDIUM' : 'SECURE'}
+                    </span>
+
+                    {/* Type Badge */}
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-300 shrink-0">
+                      {pkt.packet_type || pkt.protocol || 'ESP'}
+                    </span>
+
+                    {/* Source -> Destination */}
+                    <span className="text-gray-200 font-medium truncate">
+                      {pkt.src_ip}
+                      {pkt.src_port ? `:${pkt.src_port}` : ''} &rarr; {pkt.dst_ip}
+                      {pkt.dst_port ? `:${pkt.dst_port}` : ''}
+                    </span>
+
+                    {/* SPI */}
+                    {pkt.spi && pkt.spi !== '—' && (
+                      <span className="text-purple-400 text-[11px] shrink-0">
+                        SPI:{pkt.spi}
                       </span>
+                    )}
 
-                      {/* Status / Severity Tag */}
+                    {/* Sequence # */}
+                    {pkt.seq_num !== null && pkt.seq_num !== undefined && (
                       <span
-                        className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                          isCrit
-                            ? 'bg-red-500 text-white'
-                            : isWarn
-                            ? 'bg-amber-500 text-gray-950 font-extrabold'
-                            : 'bg-emerald-500/30 text-emerald-300'
+                        className={`text-[11px] shrink-0 font-bold ${
+                          pkt.is_replay ? 'text-red-400 underline animate-pulse' : 'text-gray-400'
                         }`}
                       >
-                        {isCrit ? 'CRITICAL' : isWarn ? 'MEDIUM' : 'SECURE'}
+                        Seq:{pkt.seq_num}
+                        {pkt.is_replay && ' [REPLAY]'}
                       </span>
-
-                      {/* Type Badge */}
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-300 shrink-0">
-                        {pkt.packet_type || 'ESP'}
-                      </span>
-
-                      {/* Source -> Destination */}
-                      <span className="text-gray-200 font-medium truncate">
-                        {pkt.src_ip}
-                        {pkt.src_port ? `:${pkt.src_port}` : ''} &rarr; {pkt.dst_ip}
-                        {pkt.dst_port ? `:${pkt.dst_port}` : ''}
-                      </span>
-
-                      {/* SPI */}
-                      {pkt.spi && pkt.spi !== '—' && (
-                        <span className="text-purple-400 text-[11px] shrink-0">
-                          SPI:{pkt.spi}
-                        </span>
-                      )}
-
-                      {/* Sequence # */}
-                      {pkt.seq_num !== null && pkt.seq_num !== undefined && (
-                        <span
-                          className={`text-[11px] shrink-0 font-bold ${
-                            pkt.is_replay ? 'text-red-400 underline animate-pulse' : 'text-gray-400'
-                          }`}
-                        >
-                          Seq:{pkt.seq_num}
-                          {pkt.is_replay && ' [REPLAY]'}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-amber-400 font-semibold">{pkt.packet_length}B</span>
-                      <span className="text-[10px] text-gray-500 hover:text-gray-300">&rarr;</span>
-                    </div>
+                    )}
                   </div>
-                );
-              })
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-amber-400 font-semibold">{pkt.packet_length}B</span>
+                    <span className="text-[10px] text-gray-500 hover:text-gray-300">&rarr;</span>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       </div>

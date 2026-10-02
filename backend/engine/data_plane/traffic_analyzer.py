@@ -20,73 +20,6 @@ from backend.engine.inference_pipeline import infer_with_fallback
 logger = logging.getLogger(__name__)
 
 
-def classify_non_esp_packet(
-    proto_col: str,
-    ip_proto: str = "",
-    udp_sport: str = "",
-    udp_dport: str = "",
-    tcp_sport: str = "",
-    tcp_dport: str = "",
-    icmp_type: str = "",
-    info_col: str = "",
-) -> str:
-    """Classify non-ESP network packets into authentic, human-readable application categories."""
-    p_up = proto_col.upper()
-    info_up = info_col.upper()
-
-    if "ICMP" in p_up or ip_proto == "1" or bool(icmp_type):
-        if "REPLY" in info_up or icmp_type == "0":
-            return "ICMP (Echo Reply)"
-        elif "REQUEST" in info_up or icmp_type == "8":
-            return "ICMP (Echo Request - Ping)"
-        elif "UNREACHABLE" in info_up or icmp_type == "3":
-            return "ICMP (Destination Unreachable)"
-        return "ICMP (Diagnostics / Ping)"
-
-    if "RTP" in p_up or "SIP" in p_up or udp_sport in ("5060", "5061") or udp_dport in ("5060", "5061"):
-        return "VoIP (RTP Audio / SIP)"
-
-    if "DNS" in p_up or udp_sport == "53" or udp_dport == "53":
-        return "DNS (Name Resolution)"
-
-    if "MDNS" in p_up or "SSDP" in p_up:
-        return "Service Discovery (mDNS/SSDP)"
-
-    if "QUIC" in p_up or "HTTP3" in p_up:
-        return "QUIC / HTTP3 Streaming"
-
-    if "TLS" in p_up or "SSL" in p_up or "HTTPS" in p_up or tcp_sport == "443" or tcp_dport == "443":
-        return "Secure Web (HTTPS / TLS)"
-
-    if "HTTP" in p_up or tcp_sport == "80" or tcp_dport == "80":
-        return "Web Traffic (HTTP)"
-
-    if "SSH" in p_up or tcp_sport == "22" or tcp_dport == "22":
-        return "Remote Shell (SSH)"
-
-    if "NTP" in p_up or udp_sport == "123" or udp_dport == "123":
-        return "Network Time (NTP)"
-
-    if "IKE" in p_up or udp_sport in ("500", "4500") or udp_dport in ("500", "4500"):
-        return "IKE (Key Exchange)"
-
-    if "TCP" in p_up or ip_proto == "6":
-        port = tcp_dport or tcp_sport
-        return f"TCP Stream (Port {port})" if port else "TCP Data Stream"
-
-    if "UDP" in p_up or ip_proto == "17":
-        port = udp_dport or udp_sport
-        return f"UDP Datagram (Port {port})" if port else "UDP Datagrams"
-
-    if "ARP" in p_up:
-        return "ARP (Address Resolution)"
-
-    return proto_col if proto_col and proto_col != "Unknown" else "Other Network Traffic"
-
-
-_classify_non_esp_packet = classify_non_esp_packet
-
-
 def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
     """
     Dynamically analyzes packet traffic distributions, payload sizes,
@@ -117,7 +50,7 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
             # and installations without wslpath continue to work.
             tshark_pcap_path = pcap_path
 
-    # Query comprehensive packet headers, ports, and protocol metadata
+    # Query frame length and protocol column from tshark
     cmd = [
         tshark_bin,
         "-r", tshark_pcap_path,
@@ -127,12 +60,6 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         "-e", "ip.proto",
         "-e", "esp.spi",
         "-e", "frame.time_epoch",
-        "-e", "udp.srcport",
-        "-e", "udp.dstport",
-        "-e", "tcp.srcport",
-        "-e", "tcp.dstport",
-        "-e", "icmp.type",
-        "-e", "_ws.col.Info",
     ]
 
     proc = subprocess.run(
@@ -164,33 +91,20 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
     for line in lines:
         parts = line.split("\t")
         frame_len = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else 0
-        if frame_len <= 0:
-            continue
-
         proto_col = parts[1] if len(parts) >= 2 else "Unknown"
         ip_proto = parts[2] if len(parts) >= 3 else ""
         esp_spi = parts[3] if len(parts) >= 4 else ""
         timestamp_raw = parts[4] if len(parts) >= 5 else ""
-        udp_sport = parts[5] if len(parts) >= 6 else ""
-        udp_dport = parts[6] if len(parts) >= 7 else ""
-        tcp_sport = parts[7] if len(parts) >= 8 else ""
-        tcp_dport = parts[8] if len(parts) >= 9 else ""
-        icmp_type = parts[9] if len(parts) >= 10 else ""
-        info_col = parts[10] if len(parts) >= 11 else ""
 
-        is_esp = (ip_proto == "50" or proto_col.upper() == "ESP" or bool(esp_spi))
-
-        if is_esp:
+        if ip_proto == "50" or proto_col.upper() == "ESP" or esp_spi:
             esp_packet_sizes.append(frame_len)
+
             try:
                 esp_timestamps.append(float(timestamp_raw))
             except (ValueError, TypeError):
                 esp_timestamps.append(float("nan"))
         else:
-            cat_label = _classify_non_esp_packet(
-                proto_col, ip_proto, udp_sport, udp_dport, tcp_sport, tcp_dport, icmp_type, info_col
-            )
-            proto_sizes[cat_label].append(frame_len)
+            proto_sizes[proto_col].append(frame_len)
 
     detected_traffic: List[Dict[str, Any]] = []
     heuristic_mode: Optional[str] = None
@@ -231,25 +145,13 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
             if sizes:
                 count = len(sizes)
                 avg_sz = round(sum(sizes) / count, 1)
-                pct = round((count / total_packets) * 100.0, 1)
+                pct = round((count / esp_count) * 100.0, 1)
                 detected_traffic.append({
-                    "traffic_type": f"ESP - {cat_name}" if proto_sizes else cat_name,
+                    "traffic_type": cat_name,
                     "percentage": pct,
                     "packet_count": count,
                     "avg_packet_size_bytes": avg_sz
                 })
-
-        # Include all observed non-ESP protocols (ICMP, IKE, DNS, Web, etc.)
-        for proto_name, sizes in sorted(proto_sizes.items(), key=lambda x: len(x[1]), reverse=True):
-            count = len(sizes)
-            avg_sz = round(sum(sizes) / count, 1)
-            pct = round((count / total_packets) * 100.0, 1)
-            detected_traffic.append({
-                "traffic_type": proto_name,
-                "percentage": pct,
-                "packet_count": count,
-                "avg_packet_size_bytes": avg_sz
-            })
 
         # Sort descending by packet count
         detected_traffic.sort(key=lambda x: x["packet_count"], reverse=True)
@@ -377,34 +279,40 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
 
     # 2. If non-ESP packets, classify the observed network protocols directly
     else:
-        # Group real observed protocols into authentic traffic categories
+        # Group real observed protocols into human-friendly traffic categories
         for proto, sizes in sorted(proto_sizes.items(), key=lambda x: len(x[1]), reverse=True):
             count = len(sizes)
             avg_sz = round(sum(sizes) / count, 1)
             pct = round((count / total_packets) * 100.0, 1)
 
+            # Map protocol to descriptive traffic label
+            proto_upper = proto.upper()
+            if "QUIC" in proto_upper:
+                label = "QUIC / HTTP3 Streaming"
+            elif "TLS" in proto_upper or "SSL" in proto_upper or "HTTPS" in proto_upper:
+                label = f"Secure Web ({proto})"
+            elif "TCP" in proto_upper:
+                label = "TCP Data"
+            elif "UDP" in proto_upper:
+                label = "UDP Datagrams"
+            elif "DNS" in proto_upper:
+                label = "DNS Queries"
+            elif "MDNS" in proto_upper or "SSDP" in proto_upper:
+                label = "Service Discovery"
+            else:
+                label = proto
+
             detected_traffic.append({
-                "traffic_type": proto,
+                "traffic_type": label,
                 "percentage": pct,
                 "packet_count": count,
                 "avg_packet_size_bytes": avg_sz
             })
 
-        # Infer traffic type from dominant observed protocol
-        if detected_traffic:
-            top_label = detected_traffic[0]["traffic_type"].lower()
-            if "icmp" in top_label or "ping" in top_label:
-                heuristic_traffic = "icmp"
-            elif "voip" in top_label or "rtp" in top_label or "sip" in top_label:
-                heuristic_traffic = "voip"
-            else:
-                heuristic_traffic = "https"
-            heuristic_mode = "plaintext"
-            confidence = 0.95
-        else:
-            heuristic_mode = None
-            api_mode = None
-            confidence = 0.0
+        # No IPsec packets observed
+        heuristic_mode = None
+        api_mode = None
+        confidence = 0.0
         agreement_flag = False
 
     return {

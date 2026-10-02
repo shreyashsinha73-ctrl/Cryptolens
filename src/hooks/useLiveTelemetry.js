@@ -34,20 +34,24 @@ export function useLiveTelemetry() {
             case 'connection_ack':
               break;
             case 'esp_event':
-              setEspEvents((prev) => [...prev.slice(-99), data]);
-              setWireEvents((prev) => [...prev.slice(-249), data]);
+              setEspEvents((prev) => [...prev.slice(-999), data]);
+              setWireEvents((prev) => [...prev.slice(-1999), data]);
               setIsStreaming(true);
               setStreamCompleted(false);
               break;
             case 'ike_event':
-              setIkeEvents((prev) => [...prev.slice(-49), data]);
-              setWireEvents((prev) => [...prev.slice(-249), data]);
+              setIkeEvents((prev) => [...prev.slice(-499), data]);
+              setWireEvents((prev) => [...prev.slice(-1999), data]);
               setIsStreaming(true);
               setStreamCompleted(false);
               break;
+            case 'icmp_event':
+            case 'voip_event':
+            case 'dns_event':
+            case 'web_event':
             case 'wire_packet':
             case 'inner_event':
-              setWireEvents((prev) => [...prev.slice(-249), data]);
+              setWireEvents((prev) => [...prev.slice(-1999), data]);
               setIsStreaming(true);
               setStreamCompleted(false);
               break;
@@ -55,7 +59,7 @@ export function useLiveTelemetry() {
               setRollingScore(data);
               break;
             case 'anomaly_alert':
-              setAnomalyAlerts((prev) => [...prev.slice(-49), data]);
+              setAnomalyAlerts((prev) => [...prev.slice(-99), data]);
               break;
             case 'stream_completed':
               setIsStreaming(false);
