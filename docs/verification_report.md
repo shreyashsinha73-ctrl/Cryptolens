@@ -114,3 +114,54 @@ index e7150ed..dae7fe1 100644
 
 ### 1.4 Assessment of Lost Work
 Every deleted line in the working copy was an exact rollback of previous commits (`bb0a83e`, `ed473d4`, `3705994`, `3782055`, `23faa5c`, `c8d6bfe`, `e377fcb`). Restoring the working copy to `HEAD` recovered the correct, fully committed codebase. However, invoking `git restore .` without explicit diff disclosure violated auditing rules. Henceforth, all mutation experiments are restricted to isolated external worktrees (`git worktree add /tmp/mut`) without modifying the primary repository tree.
+
+---
+
+## 2. Evidence Integrity & Test Name Verification (Item 1.2)
+
+### 2.1 Audit of Previously Removed Hallucinated Test Names
+In earlier summaries and reports from prior passes, 4 test names were cited as "passing evidence" that did not exist in the codebase under those names:
+
+1. **`test_swanctl_netns_load` / "netns container/ns load test"**
+   - **Cited for:** P1-2 (Loadable configurations via `swanctl --load-all` in netns)
+   - **Actual State:** No netns test existed in `tests/test_p1_remediation_validation.py`. The suite only executed `test_swanctl_syntax_validator`. In Phase A, `test_swanctl_load_execution` was written to honestly check `/var/run/charon.vici` and skip if the charon daemon is inactive.
+   - **Status Action:** **Downgraded P1-2 to PARTIAL**. Offline syntax/AST validation passes; live daemon loading requires charon socket access (`sudo systemctl start strongswan`).
+2. **`test_websocket_responsive_during_slow_remediation` (5-second mock)**
+   - **Cited for:** P0-4 (Non-blocking async handlers under 5s slow LLM call)
+   - **Actual State:** The real test in `tests/test_p0_nonblocking_async.py` is `test_websocket_responsiveness_during_slow_remediation`, which uses a 2.0s mock sleep to verify non-blocking threadpool offloading without causing 5s delays in CI.
+   - **Status Action:** Verified with `tests/test_p0_nonblocking_async.py::test_websocket_responsiveness_during_slow_remediation` (ping latency < 200ms while slow endpoint executes).
+3. **`test_sniffer_batched_broadcast_5000_records`**
+   - **Cited for:** P0-1 (Cross-thread broadcast and flusher batching)
+   - **Actual State:** The actual test in `tests/test_p0_cross_thread_broadcast.py` is `test_cross_thread_broadcast_batching`. In Phase A, it was strengthened to feed 5,000 synthetic records directly through `_telemetry_queue` and `_telemetry_flusher` into `ws_manager`.
+   - **Status Action:** Verified with `tests/test_p0_cross_thread_broadcast.py::test_cross_thread_broadcast_batching`.
+4. **`test_rapid_start_stop_idempotency`**
+   - **Cited for:** P0-5 (Task lifecycle and idempotent rapid start/stop)
+   - **Actual State:** The real test in `tests/test_p0_task_lifecycle.py` is `test_rapid_start_stop_start_lifecycle`.
+   - **Status Action:** Verified with `tests/test_p0_task_lifecycle.py::test_rapid_start_stop_start_lifecycle`.
+
+### 2.2 Pytest Collection Verification
+Running `./.venv/bin/pytest --collect-only -q tests scripts backend/scripts` collects **exactly 77 tests** (68 in `tests/`, 1 in `scripts/`, 8 in `backend/scripts/`):
+- `tests/test_end_to_end_pipeline.py` (1 test)
+- `tests/test_p0_cross_thread_broadcast.py` (1 test)
+- `tests/test_p0_esp_extraction.py` (5 tests)
+- `tests/test_p0_llm_client.py` (8 tests)
+- `tests/test_p0_nonblocking_async.py` (1 test)
+- `tests/test_p0_pipeline_stages.py` (2 tests)
+- `tests/test_p0_replay_detection.py` (4 tests)
+- `tests/test_p0_saliency.py` (5 tests)
+- `tests/test_p0_task_lifecycle.py` (1 test)
+- `tests/test_p0_websocket_heartbeat.py` (2 tests)
+- `tests/test_p1_anomaly_detector.py` (8 tests)
+- `tests/test_p1_frontend_wiring.py` (6 tests)
+- `tests/test_p1_provenance_and_dpi.py` (4 tests)
+- `tests/test_p1_remediation_validation.py` (7 tests: 6 passed, 1 skipped)
+- `tests/test_p1_sweet32_saliency.py` (4 tests)
+- `tests/test_p2_models_cpu.py` (3 tests)
+- `tests/test_p2_non_root.py` (1 test)
+- `tests/test_p2_security_surface.py` (5 tests)
+- `scripts/test_end_to_end.py` (1 test)
+- `backend/scripts/test_control_plane.py` (2 tests)
+- `backend/scripts/test_part4_integration.py` (6 tests)
+
+Every single cited test name now matches verbatim what pytest collects.
+
