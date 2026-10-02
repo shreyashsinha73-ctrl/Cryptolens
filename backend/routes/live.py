@@ -313,13 +313,22 @@ async def live_telemetry(websocket: WebSocket):
         })
 
         while True:
+            data = await websocket.receive_text()
             try:
-                await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
-            except asyncio.TimeoutError:
+                msg = json.loads(data)
+                if msg.get("type") == "ping":
+                    await ws_manager.send_personal(websocket, {
+                        "type": "pong",
+                        "timestamp": time.time(),
+                    })
+            except Exception:
                 pass
-            await asyncio.sleep(0.05)
 
     except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug(f"WebSocket client disconnected: {e}")
+    finally:
         ws_manager.disconnect(websocket)
 
 

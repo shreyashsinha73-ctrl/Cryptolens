@@ -113,6 +113,10 @@ function initWebSocket() {
             notifySubscribers();
             break;
 
+          case 'heartbeat':
+          case 'pong':
+            break;
+
           case 'stream_completed':
             state.isStreaming = false;
             state.streamCompleted = true;
