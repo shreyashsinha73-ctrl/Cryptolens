@@ -35,7 +35,7 @@ def _extract_esp_records_from_pcap(pcap_path: Path, max_records: int = 60) -> Li
     cmd = [
         tshark_bin,
         "-r", str(pcap_path),
-        "-Y", "esp || ip.proto == 50 || esp.spi",
+        "-Y", "esp || ip.proto == 50 || ipv6.nxt == 50 || esp.spi",
         "-T", "fields",
         "-e", "frame.number",
         "-e", "frame.time_epoch",
@@ -44,6 +44,8 @@ def _extract_esp_records_from_pcap(pcap_path: Path, max_records: int = 60) -> Li
         "-e", "esp.spi",
         "-e", "esp.sequence",
         "-e", "frame.len",
+        "-e", "ipv6.src",
+        "-e", "ipv6.dst",
         "-c", str(max_records),
     ]
 
@@ -60,8 +62,10 @@ def _extract_esp_records_from_pcap(pcap_path: Path, max_records: int = 60) -> Li
         if len(parts) >= 7:
             frame_num = int(parts[0]) if parts[0].isdigit() else (len(records) + 1)
             ts = float(parts[1]) if parts[1] else 0.0
-            src_ip = parts[2] or "10.10.0.1"
-            dst_ip = parts[3] or "10.10.0.2"
+            ipv6_src = parts[7] if len(parts) > 7 and parts[7] else ""
+            ipv6_dst = parts[8] if len(parts) > 8 and parts[8] else ""
+            src_ip = parts[2] or ipv6_src or "10.10.0.1"
+            dst_ip = parts[3] or ipv6_dst or "10.10.0.2"
             spi = parts[4] or "unknown"
             seq_num = int(parts[5]) if parts[5].isdigit() else None
             pkt_len = int(parts[6]) if parts[6].isdigit() else 0

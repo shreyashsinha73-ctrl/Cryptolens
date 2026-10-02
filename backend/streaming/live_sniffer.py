@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable, Dict, Any, List
 
 from scapy.all import AsyncSniffer, IP, UDP, Raw
+from scapy.layers.inet6 import IPv6
+from scapy.layers.ipsec import ESP
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class ESPPacketRecord:
     packet_length: int
     spi: Optional[str] = None
     seq_num: Optional[int] = None
+    iface: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -41,6 +44,7 @@ class ESPPacketRecord:
             "packet_length": self.packet_length,
             "spi": self.spi,
             "seq_num": self.seq_num,
+            "iface": self.iface,
         }
 
 
@@ -136,70 +140,96 @@ class LiveSniffer:
 
     @staticmethod
     def _default_bpf() -> str:
-        """BPF filter for IPsec traffic: ESP + IKE (UDP 500/4500)."""
-        return "(ip proto 50) or (udp port 500) or (udp port 4500)"
+        """BPF filter for IPsec traffic: ESP + IKE (UDP 500/4500) over IPv4 and IPv6."""
+        return "(ip proto 50) or (ip6 proto 50) or (udp port 500) or (udp port 4500)"
 
     def _packet_handler(self, pkt):
         """Scapy callback — classify each packet as ESP or IKE."""
         self._frame_counter += 1
         ts = float(pkt.time) if hasattr(pkt, "time") else time.time()
+        sniffed_iface = getattr(pkt, "sniffed_on", None) or self.interface
 
-        if not pkt.haslayer(IP):
+        is_ipv4 = pkt.haslayer(IP)
+        is_ipv6 = pkt.haslayer(IPv6)
+        if not (is_ipv4 or is_ipv6):
             return
 
-        ip_layer = pkt[IP]
+        if is_ipv4:
+            ip_layer = pkt[IP]
+            src_ip = ip_layer.src
+            dst_ip = ip_layer.dst
+            proto = ip_layer.proto
+        else:
+            ip_layer = pkt[IPv6]
+            src_ip = ip_layer.src
+            dst_ip = ip_layer.dst
+            proto = getattr(ip_layer, "nh", None)
 
-        # Check for ESP (IP protocol 50)
-        if ip_layer.proto == ESP_PROTO:
+        # Check for ESP (IP/IPv6 proto 50 or Scapy ESP layer)
+        if proto == ESP_PROTO or pkt.haslayer(ESP):
             record = ESPPacketRecord(
                 timestamp=ts,
                 frame_number=self._frame_counter,
-                src_ip=ip_layer.src,
-                dst_ip=ip_layer.dst,
+                src_ip=src_ip,
+                dst_ip=dst_ip,
                 packet_length=len(pkt),
+                iface=str(sniffed_iface) if sniffed_iface else None,
             )
-            # Try to extract SPI and sequence number from ESP header
-            if pkt.haslayer(Raw):
+            # Try to extract SPI and sequence number
+            if pkt.haslayer(ESP):
+                esp = pkt[ESP]
+                record.spi = f"0x{esp.spi:08x}" if isinstance(esp.spi, int) else str(esp.spi)
+                record.seq_num = int(esp.seq) if esp.seq is not None else None
+            elif pkt.haslayer(Raw):
                 raw = bytes(pkt[Raw])
                 if len(raw) >= 8:
-                    record.spi = raw[:4].hex()
+                    spi_val = int.from_bytes(raw[:4], "big")
+                    record.spi = f"0x{spi_val:08x}"
                     record.seq_num = int.from_bytes(raw[4:8], "big")
+
             self.state.add_esp(record)
             if self._on_esp_callback:
                 self._on_esp_callback(record)
             return
 
-        # Check for IKE (UDP 500 or 4500)
+        # Check for IKE or NAT-T ESP (UDP 500 or 4500)
         if pkt.haslayer(UDP):
             udp = pkt[UDP]
             if udp.sport in IKE_PORTS or udp.dport in IKE_PORTS:
-                # NAT-T disambiguation for port 4500
-                if udp.sport == 4500 or udp.dport == 4500:
-                    if pkt.haslayer(Raw):
-                        payload = bytes(pkt[Raw])
-                        if len(payload) >= 4 and payload[:4] != NON_ESP_MARKER:
-                            # This is NAT-T ESP, not IKE
-                            record = ESPPacketRecord(
-                                timestamp=ts,
-                                frame_number=self._frame_counter,
-                                src_ip=ip_layer.src,
-                                dst_ip=ip_layer.dst,
-                                packet_length=len(pkt),
-                            )
-                            if len(payload) >= 8:
-                                record.spi = payload[:4].hex()
-                                record.seq_num = int.from_bytes(payload[4:8], "big")
-                            self.state.add_esp(record)
-                            if self._on_esp_callback:
-                                self._on_esp_callback(record)
-                            return
+                udp_payload = bytes(udp.payload) if hasattr(udp, "payload") else b""
 
-                raw_bytes = bytes(pkt[Raw]) if pkt.haslayer(Raw) else b""
+                # 1-byte 0xFF is RFC 3948 NAT-keepalive, not IKE
+                if len(udp_payload) == 1 and udp_payload == b"\xff":
+                    logger.debug("NAT-keepalive packet received (RFC 3948 Section 2.3); ignored.")
+                    return
+
+                # NAT-T disambiguation on port 4500
+                if (udp.sport == 4500 or udp.dport == 4500) and len(udp_payload) >= 4:
+                    if udp_payload[:4] != NON_ESP_MARKER:
+                        # Non-ESP marker absent: this is NAT-T encapsulated ESP
+                        record = ESPPacketRecord(
+                            timestamp=ts,
+                            frame_number=self._frame_counter,
+                            src_ip=src_ip,
+                            dst_ip=dst_ip,
+                            packet_length=len(pkt),
+                            iface=str(sniffed_iface) if sniffed_iface else None,
+                        )
+                        if len(udp_payload) >= 8:
+                            spi_val = int.from_bytes(udp_payload[:4], "big")
+                            record.spi = f"0x{spi_val:08x}"
+                            record.seq_num = int.from_bytes(udp_payload[4:8], "big")
+                        self.state.add_esp(record)
+                        if self._on_esp_callback:
+                            self._on_esp_callback(record)
+                        return
+
+                raw_bytes = udp_payload[4:] if udp_payload.startswith(NON_ESP_MARKER) else udp_payload
                 record = IKEPacketRecord(
                     timestamp=ts,
                     frame_number=self._frame_counter,
-                    src_ip=ip_layer.src,
-                    dst_ip=ip_layer.dst,
+                    src_ip=src_ip,
+                    dst_ip=dst_ip,
                     src_port=udp.sport,
                     dst_port=udp.dport,
                     raw_bytes=raw_bytes,

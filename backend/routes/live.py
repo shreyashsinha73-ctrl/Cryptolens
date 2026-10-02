@@ -68,6 +68,9 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
         "-e", "esp.sequence",
         "-e", "frame.len",
         "-e", "frame.time_epoch",
+        "-e", "ipv6.src",
+        "-e", "ipv6.dst",
+        "-e", "ipv6.nxt",
         "-c", str(max_packets),
     ]
 
@@ -95,14 +98,20 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
         parts = line.split("\t")
         frame_num = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else (len(records) + 1)
         proto = parts[1] if len(parts) > 1 and parts[1] else "Unknown"
-        src_ip = parts[2] if len(parts) > 2 and parts[2] else "10.10.0.1"
-        dst_ip = parts[3] if len(parts) > 3 and parts[3] else "10.10.0.2"
+        ipv6_src = parts[10] if len(parts) > 10 and parts[10] else ""
+        ipv6_dst = parts[11] if len(parts) > 11 and parts[11] else ""
+        ipv6_nxt = parts[12] if len(parts) > 12 and parts[12] else ""
+
+        src_ip = parts[2] if len(parts) > 2 and parts[2] else (ipv6_src or "10.10.0.1")
+        dst_ip = parts[3] if len(parts) > 3 and parts[3] else (ipv6_dst or "10.10.0.2")
         src_port = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else None
         dst_port = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else None
         spi = parts[6] if len(parts) > 6 and parts[6] else None
         seq_num = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else None
         pkt_len = int(parts[8]) if len(parts) > 8 and parts[8].isdigit() else 0
         ts = float(parts[9]) if len(parts) > 9 and parts[9] else time.time()
+        if (not proto or proto == "Unknown") and (ipv6_nxt == "50" or spi):
+            proto = "ESP"
 
         # Check for replay duplicate
         is_replay = False
