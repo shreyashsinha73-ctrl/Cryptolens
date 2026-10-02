@@ -145,6 +145,12 @@ def run_integration_test():
     print("=" * 70)
     return True
 
+
+def test_end_to_end_integration():
+    """Pytest-compatible wrapper for end-to-end integration test."""
+    assert run_integration_test() is True
+
+
 if __name__ == "__main__":
     success = run_integration_test()
     sys.exit(0 if success else 1)
