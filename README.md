@@ -135,7 +135,17 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## 🧪 Running Verification & Tests End-to-End
 
-### 1. Full Pipeline Automated Regression (All Stages)
+### 1. Comprehensive Defense Audit & Demo Verification
+Run the 5-stage automated defense audit and live demonstration harness:
+```bash
+# Run 5-stage defense audit verification (PCAP Ingestion, Dual-Track, XAI Grad-CAM, Anti-Replay, Remediation)
+./scripts/demo_audit.sh
+
+# Run full 62-test regression test suite
+.venv/bin/pytest tests
+```
+
+### 2. Full Pipeline Automated Regression (Legacy Stages)
 Run the automated end-to-end integration test harness:
 ```bash
 # Ensure venv is activated
