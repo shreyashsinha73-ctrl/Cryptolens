@@ -1,0 +1,23 @@
+{
+  "model_type": "IsolationForest",
+  "n_samples": 1500,
+  "threshold": 0.008149,
+  "threshold_percentile": 99.5,
+  "n_features": 14,
+  "feature_names": [
+    "mean_length",
+    "std_length",
+    "min_length",
+    "max_length",
+    "length_range",
+    "mean_iat",
+    "std_iat",
+    "max_iat",
+    "large_pkt_ratio",
+    "small_pkt_ratio",
+    "burst_ratio",
+    "length_entropy",
+    "iat_cv",
+    "log_bytes_per_second"
+  ]
+}

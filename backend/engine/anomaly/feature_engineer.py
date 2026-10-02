@@ -64,13 +64,14 @@ def extract_flow_features(
     # Coefficient of variation for IATs
     iat_cv = (std_iat / mean_iat) if mean_iat > 0 else 0.0
 
-    # Throughput
+    # Throughput (log-transformed for variance stability across orders of magnitude)
     total_time = np.sum(positive_iats) if len(positive_iats) > 0 else 1.0
     bytes_per_second = np.sum(lengths) / max(total_time, 0.001)
+    log_bytes_per_second = float(np.log1p(bytes_per_second))
 
     return np.array([
         mean_len, std_len, min_len, max_len, length_range,
         mean_iat, std_iat, max_iat,
         large_pkt_ratio, small_pkt_ratio, burst_ratio,
-        length_entropy, iat_cv, bytes_per_second,
+        length_entropy, iat_cv, log_bytes_per_second,
     ], dtype=np.float64)
