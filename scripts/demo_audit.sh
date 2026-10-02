@@ -34,7 +34,7 @@ fi
 echo -e "\n${YELLOW}[*] Executing 5-Stage End-to-End Pipeline Audit...${NC}\n"
 
 cd "${PROJECT_ROOT}"
-if "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/test_v2_features.py"; then
+if "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/test_v2_features.py" "$@"; then
     echo -e "\n${GREEN}${BOLD}================================================================================"
     echo " [+] DEMO AUDIT VERIFICATION COMPLETE: ALL SYSTEMS NOMINAL (5/5 PASSED)"
     echo -e "================================================================================${NC}"

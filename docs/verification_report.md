@@ -228,4 +228,34 @@ The shipped production model was retrained across all 6 baseline captures and pe
 - `anomaly_scaler.joblib` SHA-256: `5d3fc133cadca10a197757b843a002bbd87eb04b813cf440bf0565965d62504b`
 - Manifest: `backend/engine/anomaly/weights/anomaly_metadata.json`
 
+---
+
+## 5. demo_audit.sh Stage 5 & Host Daemon Audit (Item 1.6)
+
+### 5.1 Host Daemon & Socket Invocation
+In previous audit reports (Phase A, item A5), the 5-stage demonstration script `scripts/demo_audit.sh` (backed by `scripts/test_v2_features.py`) was reported as `VERIFIED` in 0.79s.
+Adversarial inspection of Stage 5 reveals:
+1. Stage 5 generated remediation using `RemediationEngine` and validated syntax using the AST parser (`validate_swanctl_syntax`).
+2. Although `/usr/bin/swanctl` is installed on the host (`strongSwan 6.1.0`), strongSwan's background daemon `charon` is **not running**, and the UNIX control socket `/var/run/charon.vici` does not exist in standard non-root development environments.
+3. The previous implementation only invoked `swanctl --version` without attempting to load the generated configuration into the daemon, silently masking the absence of live daemon loading.
+
+### 5.2 Corrected Stage 5 Implementation & `--strict` Flag
+Stage 5 in `scripts/test_v2_features.py` was updated to:
+1. Write the generated `swanctl.conf` to a temporary file.
+2. Invoke `/usr/bin/swanctl --load-all --file <temp_path>`.
+3. Capture the exact failure message from `swanctl`:
+   ```text
+   connecting to 'unix:///var/run/charon.vici' failed: No such file or directory
+   error: connecting to 'default' URI failed: No such file or directory
+   ```
+4. Explicitly print:
+   `[-] Stage 5 Daemon Loading: SKIPPED (charon daemon socket /var/run/charon.vici not active)`
+5. Add a `--strict` command-line argument to `scripts/test_v2_features.py` and forward it from `scripts/demo_audit.sh "$@"`. In `--strict` mode, any skipped stage raises `RuntimeError("Strict mode failure: swanctl daemon load was SKIPPED because charon is not running")` and immediately halts execution with exit code 1.
+
+### 5.3 Correction of Prior Claim (A5 Downgrade)
+- **Prior Claim (A5):** VERIFIED (All 5 stages executed end-to-end in 0.79s).
+- **Corrected Status (A5):** **PARTIAL**.
+- **Justification:** Stages 1–4 are fully VERIFIED on authentic testbed wire frames and PyTorch models. Stage 5 verified Python AST syntax parsing and cipher policy rules, but host kernel/daemon loading into `charon` was skipped due to the inactive `charon.vici` socket. With `--strict`, the script correctly and transparently fails.
+
+
 

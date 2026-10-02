@@ -10,10 +10,12 @@ Validates the 5 core hardening capabilities for technical judges:
   5. Deterministic AI config remediation targeting authoritative swanctl.conf
 """
 
+import argparse
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -214,7 +216,7 @@ def verify_stage4_replay_detection():
     return replays, elapsed
 
 
-def verify_stage5_remediation():
+def verify_stage5_remediation(strict: bool = False):
     """Stage 5: Verify AI remediation generates valid, hardened swanctl.conf."""
     t0 = time.perf_counter()
     print("\n" + "=" * 70)
@@ -252,13 +254,42 @@ def verify_stage5_remediation():
     assert is_valid, f"swanctl.conf syntax error: {err_msg}"
     print(f"  [+] Syntax Validation:   VALID (No mismatched braces or invalid block structures)")
 
-    # 3. Check swanctl binary invocation if installed on host
+    # 3. Check swanctl binary invocation and daemon loading if installed on host
     swanctl_bin = shutil.which("swanctl")
     if swanctl_bin:
         ver_proc = subprocess.run([swanctl_bin, "--version"], capture_output=True, text=True)
-        print(f"  [+] Host swanctl binary: {swanctl_bin} ({ver_proc.stdout.strip() or 'installed'})")
+        version_line = ver_proc.stdout.strip().splitlines()[0] if ver_proc.stdout else "installed"
+        print(f"  [+] Host swanctl binary: {swanctl_bin} ({version_line})")
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False) as f:
+            f.write(swanctl_conf)
+            temp_conf_path = f.name
+        try:
+            load_proc = subprocess.run(
+                [swanctl_bin, "--load-all", "--file", temp_conf_path],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            combined_err = (load_proc.stderr + " " + load_proc.stdout).strip()
+            if "connecting to" in combined_err and "failed" in combined_err:
+                print(f"  [!] swanctl daemon check: {combined_err}")
+                print(f"  [-] Stage 5 Daemon Loading: SKIPPED (charon daemon socket /var/run/charon.vici not active)")
+                if strict:
+                    raise RuntimeError("Strict mode failure: swanctl daemon load was SKIPPED because charon is not running")
+            elif load_proc.returncode == 0:
+                print(f"  [+] Stage 5 Daemon Loading: SUCCESS (loaded into active charon daemon)")
+            else:
+                print(f"  [!] swanctl daemon load returned code {load_proc.returncode}: {combined_err}")
+                if strict:
+                    raise RuntimeError(f"Strict mode failure: swanctl daemon load failed with code {load_proc.returncode}: {combined_err}")
+        finally:
+            if os.path.exists(temp_conf_path):
+                os.unlink(temp_conf_path)
     else:
-        print("  [!] swanctl binary not installed on host; relying on pure AST structural parser")
+        print("  [-] Stage 5 Daemon Loading: SKIPPED (swanctl binary not installed on host)")
+        if strict:
+            raise RuntimeError("Strict mode failure: swanctl binary not installed on host")
 
     # 4. Cryptographic assertions
     assert "aes256gcm" in swanctl_conf or "aes256" in swanctl_conf, "Hardened config must propose AES-256"
@@ -280,6 +311,10 @@ def verify_stage5_remediation():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="CryptoLens v2 Verification Harness")
+    parser.add_argument("--strict", action="store_true", help="Fail if any optional daemon stage is skipped")
+    args = parser.parse_args()
+
     total_start = time.perf_counter()
     print("=" * 70)
     print(" CryptoLens v2 — Comprehensive End-to-End Verification Harness")
@@ -293,7 +328,7 @@ def main():
         cp, dp, t2 = verify_stage2_dual_track_agreement(pcap_path, records)
         loc, t3 = verify_stage3_xai_saliency(records)
         replays, t4 = verify_stage4_replay_detection()
-        remed, t5 = verify_stage5_remediation()
+        remed, t5 = verify_stage5_remediation(strict=args.strict)
 
         total_elapsed = time.perf_counter() - total_start
         print("\n" + "=" * 70)
