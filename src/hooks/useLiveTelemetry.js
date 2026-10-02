@@ -8,6 +8,7 @@ function getWsUrl() {
 
 export function useLiveTelemetry() {
   const [isConnected, setIsConnected] = useState(false);
+  const [wireEvents, setWireEvents] = useState([]);
   const [espEvents, setEspEvents] = useState([]);
   const [ikeEvents, setIkeEvents] = useState([]);
   const [rollingScore, setRollingScore] = useState(null);
@@ -32,10 +33,18 @@ export function useLiveTelemetry() {
               break;
             case 'esp_event':
               setEspEvents((prev) => [...prev.slice(-99), data]);
+              setWireEvents((prev) => [...prev.slice(-149), data]);
               setIsStreaming(true);
               break;
             case 'ike_event':
-              setIkeEvents((prev) => [...prev.slice(-19), data]);
+              setIkeEvents((prev) => [...prev.slice(-49), data]);
+              setWireEvents((prev) => [...prev.slice(-149), data]);
+              setIsStreaming(true);
+              break;
+            case 'wire_packet':
+            case 'inner_event':
+              setWireEvents((prev) => [...prev.slice(-149), data]);
+              setIsStreaming(true);
               break;
             case 'rolling_score':
               setRollingScore(data);
@@ -86,11 +95,26 @@ export function useLiveTelemetry() {
     }
   };
 
-  const simulateCapture = async (configId = 'config_01_tunnel_aes256gcm_dh19_pfson') => {
+  const simulateCapture = async (configId = 'config_01_tunnel_aes256gcm_dh19_pfson', jobId = null) => {
     try {
-      const res = await fetch(`/api/v1/live/simulate?config_id=${configId}`, { method: 'POST' });
+      let url = `/api/v1/live/simulate?config_id=${encodeURIComponent(configId)}`;
+      if (jobId) {
+        url += `&job_id=${encodeURIComponent(jobId)}`;
+      }
+      const res = await fetch(url, { method: 'POST' });
       const data = await res.json();
       if (data.status === 'simulation_started') setIsStreaming(true);
+      return data;
+    } catch (e) {
+      return { status: 'error', message: e.message };
+    }
+  };
+
+  const injectTraffic = async (profile = 'hardened') => {
+    try {
+      const res = await fetch(`/api/v1/live/inject/${profile}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.status === 'injection_started') setIsStreaming(true);
       return data;
     } catch (e) {
       return { status: 'error', message: e.message };
@@ -108,16 +132,25 @@ export function useLiveTelemetry() {
     }
   };
 
+  const clearWire = () => {
+    setWireEvents([]);
+    setEspEvents([]);
+    setIkeEvents([]);
+    setAnomalyAlerts([]);
+  };
+
   return {
     isConnected,
     isStreaming,
+    wireEvents,
     espEvents,
     ikeEvents,
     rollingScore,
     anomalyAlerts,
     startCapture,
     simulateCapture,
+    injectTraffic,
     stopCapture,
+    clearWire,
   };
 }
-

@@ -328,11 +328,8 @@ function MainSocApp() {
           ) : (
             /* ── Dashboard ── */
             showEmpty ? (
-              <div className="space-y-6">
-                <LiveTelemetryPanel />
-                <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl shadow-xs">
-                  <EmptyState onUploadPcap={handleUploadPcap} uploading={uploading} />
-                </div>
+              <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl shadow-xs">
+                <EmptyState onUploadPcap={handleUploadPcap} uploading={uploading} />
               </div>
             ) : showAnalysing ? (
               <AnalysingState jobId={activeJobId} />
@@ -439,7 +436,7 @@ function MainSocApp() {
                 </div>
 
                 {/* Row 4: Live Telemetry & Sniffer Streaming */}
-                <LiveTelemetryPanel />
+                <LiveTelemetryPanel jobId={activeJobId} isRealData={isRealData} />
 
                 {/* Row 5: Explainable AI Threat Heatmap */}
                 <ThreatHeatmap jobId={activeJobId} />
@@ -478,3 +475,4 @@ function App() {
 }
 
 export default App;
+
