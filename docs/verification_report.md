@@ -165,3 +165,25 @@ Running `./.venv/bin/pytest --collect-only -q tests scripts backend/scripts` col
 
 Every single cited test name now matches verbatim what pytest collects.
 
+---
+
+## 3. Continuous Integration Status (Item 1.4)
+
+### 3.1 Status: UNVERIFIED
+Item A6 is marked **UNVERIFIED**. A local workflow configuration exists at `.github/workflows/ci.yml`, but no GitHub Actions execution run has occurred on GitHub infrastructure. Per auditing rules, no claim of passing CI may be made without live GitHub Actions execution evidence.
+
+### 3.2 StrongSwan Daemon Initiation Analysis
+In headless CI environments (such as Ubuntu GitHub Actions runners), `systemd` is often inactive as PID 1, meaning `sudo systemctl start strongswan` may fail with init errors. The workflow has been updated to employ a multi-tier fallback:
+1. `sudo systemctl start strongswan` / `sudo systemctl start strongswan-starter`
+2. `sudo ipsec start`
+3. Direct daemon execution: `sudo /usr/lib/strongswan/charon &`
+4. Polling loop: Wait up to 10 seconds for `/var/run/charon.vici` socket creation.
+
+### 3.3 What to Push
+The local repository branch `main` is currently **43 commits ahead of `origin/main`**.
+To trigger the GitHub Actions CI run, the following command must be executed by the operator or upon explicit authorization:
+```bash
+git push origin main
+```
+Prior to push confirmation, the repository will remain local.
+

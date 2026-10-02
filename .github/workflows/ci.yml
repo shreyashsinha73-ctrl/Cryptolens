@@ -27,9 +27,16 @@ jobs:
 
     - name: Start strongSwan charon daemon
       run: |
-        sudo systemctl start strongswan || sudo systemctl start strongswan-starter || true
-        sleep 2
-        sudo swanctl --version || true
+        sudo systemctl start strongswan 2>/dev/null || sudo systemctl start strongswan-starter 2>/dev/null || sudo ipsec start 2>/dev/null || sudo /usr/lib/strongswan/charon 2>/dev/null &
+        for i in $(seq 1 10); do
+          if [ -S /var/run/charon.vici ]; then
+            echo "Charon VICI socket is active at /var/run/charon.vici"
+            break
+          fi
+          sleep 1
+        done
+        sudo chmod 666 /var/run/charon.vici 2>/dev/null || true
+        swanctl --version || true
 
     - name: Install CPU-only PyTorch and Python dependencies
       run: |
