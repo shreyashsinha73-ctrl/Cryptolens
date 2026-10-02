@@ -21,7 +21,37 @@ class ScoringEngine:
             )
 
         
-    def _evaluate_param(self, category: str, value, findings):
+    def _get_evidence_source(self, category: str, value: Any, control_plane: Optional[dict]) -> str:
+        """
+        Determine authentic evidence provenance.
+        In IKEv2, only IKE_SA_INIT is cleartext on the wire.
+        Child SA ESP transforms and PFS are encrypted; they originate from testbed_config,
+        operator_supplied, or inferred statistics.
+        """
+        if isinstance(control_plane, dict) and "evidence_source" in control_plane:
+            src = control_plane["evidence_source"]
+            if isinstance(src, dict) and category in src:
+                return src[category]
+            elif isinstance(src, str):
+                return src
+
+        if category == "ike_version":
+            return "ike_v1_cleartext" if str(value).lower() in ("ikev1", "1", "v1") else "ike_sa_init"
+        elif category == "key_exchange":
+            return "ike_sa_init"
+        elif category in ("encryption", "integrity", "pfs", "key_lifetime"):
+            ike_v = str(control_plane.get("ike_version", "")).lower() if isinstance(control_plane, dict) else ""
+            if "v1" in ike_v or "ikev1" in ike_v:
+                return "ike_v1_cleartext"
+            else:
+                return "testbed_config"
+        elif category == "replay_protection":
+            return "esp_header_metadata"
+        elif category == "mode":
+            return "traffic_statistics"
+        return "inferred"
+
+    def _evaluate_param(self, category: str, value, findings, control_plane: Optional[dict] = None):
 
          # Evidence was not available
         if value is None:
@@ -36,7 +66,8 @@ class ScoringEngine:
                 ),
                 "category": category.replace("_", " ").title(),
                 "observed_value": None,
-                "source": "compliance_map.yaml"
+                "source": "compliance_map.yaml",
+                "evidence_source": "inferred",
             })
             return 0.0
 
@@ -62,7 +93,8 @@ class ScoringEngine:
                 ),
                 "category": category.replace("_", " ").title(),
                 "observed_value": value,
-                "source": "compliance_map.yaml"
+                "source": "compliance_map.yaml",
+                "evidence_source": "inferred",
             })
             return 0.0
         raw_points = rule.get("awarded_points", 0)
@@ -91,37 +123,38 @@ class ScoringEngine:
             finding_copy["category"] = category.replace("_", " ").title()
             finding_copy["observed_value"] = value
             finding_copy["source"] = "compliance_map.yaml"
+            finding_copy["evidence_source"] = self._get_evidence_source(category, value, control_plane)
 
             findings.append(finding_copy)
 
         return awarded
 
-    def evaluate_encryption(self, control_plane,findings):
-        return self._evaluate_param('encryption', control_plane.get('encryption_algorithm'),findings)
+    def evaluate_encryption(self, control_plane, findings):
+        return self._evaluate_param('encryption', control_plane.get('encryption_algorithm'), findings, control_plane)
 
-    def evaluate_integrity(self, control_plane,findings):
+    def evaluate_integrity(self, control_plane, findings):
         encryption = control_plane.get("encryption_algorithm")
         integrity = control_plane.get("integrity_algorithm")
 
         if encryption and "GCM" in encryption.upper():
             integrity = "AEAD"
 
-        return self._evaluate_param("integrity", integrity,findings)
+        return self._evaluate_param("integrity", integrity, findings, control_plane)
 
-    def evaluate_key_exchange(self, control_plane,findings):
-        return self._evaluate_param('key_exchange', control_plane.get('dh_group'),findings)
+    def evaluate_key_exchange(self, control_plane, findings):
+        return self._evaluate_param('key_exchange', control_plane.get('dh_group'), findings, control_plane)
 
-    def evaluate_pfs(self, control_plane,findings):
+    def evaluate_pfs(self, control_plane, findings):
         val = control_plane.get('pfs_enabled')
         if val is not None:
             val = str(val).lower()
-        return self._evaluate_param('pfs', val, findings)
+        return self._evaluate_param('pfs', val, findings, control_plane)
 
-    def evaluate_replay_protection(self, control_plane,findings):
+    def evaluate_replay_protection(self, control_plane, findings):
         val = control_plane.get('replay_protection_enabled')
         if val is not None:
             val = str(val).lower()
-        return self._evaluate_param('replay_protection', val, findings)
+        return self._evaluate_param('replay_protection', val, findings, control_plane)
 
     def evaluate_key_lifetime(self, control_plane, findings):
         lifetime = control_plane.get("key_lifetime_seconds")
@@ -136,13 +169,12 @@ class ScoringEngine:
                 "description": "The key lifetime or assessment threshold is unavailable.",
                 "category": "Key Lifetime",
                 "observed_value": lifetime,
-                "source": "compliance_map.yaml"
+                "source": "compliance_map.yaml",
+                "evidence_source": "testbed_config",
             })
             return 0.0
 
         # F-03 fix: reject physically impossible lifetimes (< 60 s) as invalid.
-        # A negative or near-zero value indicates corrupted/adversarial input and
-        # must NOT pass as 'valid' just because it satisfies `<= max_seconds`.
         MIN_SANE_SECONDS = 60
         if lifetime < MIN_SANE_SECONDS:
             findings.append({
@@ -157,19 +189,20 @@ class ScoringEngine:
                 ),
                 "category": "Key Lifetime",
                 "observed_value": lifetime,
-                "source": "compliance_map.yaml"
+                "source": "compliance_map.yaml",
+                "evidence_source": "testbed_config",
             })
             return 0.0
 
         val = "valid" if lifetime <= max_seconds else "invalid"
 
-        return self._evaluate_param("key_lifetime", val, findings)
+        return self._evaluate_param("key_lifetime", val, findings, control_plane)
 
-    def evaluate_ike_version(self, control_plane,findings):
-        return self._evaluate_param('ike_version', control_plane.get('ike_version'),findings)
+    def evaluate_ike_version(self, control_plane, findings):
+        return self._evaluate_param('ike_version', control_plane.get('ike_version'), findings, control_plane)
 
-    def evaluate_mode(self, control_plane,findings):
-        return self._evaluate_param('mode', control_plane.get('operating_mode'),findings)
+    def evaluate_mode(self, control_plane, findings):
+        return self._evaluate_param('mode', control_plane.get('operating_mode'), findings, control_plane)
 
     def get_risk_level(self, score: float) -> str:
         if score >= 90:

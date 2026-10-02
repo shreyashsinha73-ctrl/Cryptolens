@@ -149,14 +149,14 @@ standards:
             status: FAIL
 
       key_exchange:
-        description: "CNSA/CSfC key-establishment assessment. Applicability is package-specific."
+        description: "CNSA/CSfC key-establishment assessment. P-384 (DH 20) required; P-256 (DH 19) and MODP (DH 14) are not approved."
         values:
           20:
             status: ALIGNED
           14:
-            status: REVIEW
+            status: FAIL
           19:
-            status: REVIEW
+            status: FAIL
           21:
             status: REVIEW
           2:

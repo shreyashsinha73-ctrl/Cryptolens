@@ -50,7 +50,7 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
             # and installations without wslpath continue to work.
             tshark_pcap_path = pcap_path
 
-    # Query frame length and protocol column from tshark
+    # Query frame length and protocol fields from tshark
     cmd = [
         tshark_bin,
         "-r", tshark_pcap_path,
@@ -58,8 +58,15 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
         "-e", "frame.len",
         "-e", "_ws.col.Protocol",
         "-e", "ip.proto",
+        "-e", "ipv6.nxt",
         "-e", "esp.spi",
         "-e", "frame.time_epoch",
+        "-e", "icmp.type",
+        "-e", "icmpv6.type",
+        "-e", "dns.flags.response",
+        "-e", "tls.record.content_type",
+        "-e", "rtp",
+        "-e", "sip.Method",
     ]
 
     proc = subprocess.run(
@@ -90,21 +97,53 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
 
     for line in lines:
         parts = line.split("\t")
-        frame_len = int(parts[0]) if len(parts) >= 1 and parts[0].isdigit() else 0
+        # Fix root cause of 0-byte frames: handle comma-separated values (e.g. '1420,1420' from reassembled frames)
+        raw_len = parts[0].split(",")[0].strip() if len(parts) >= 1 and parts[0] else "0"
+        frame_len = int(raw_len) if raw_len.isdigit() else 0
         proto_col = parts[1] if len(parts) >= 2 else "Unknown"
         ip_proto = parts[2] if len(parts) >= 3 else ""
-        esp_spi = parts[3] if len(parts) >= 4 else ""
-        timestamp_raw = parts[4] if len(parts) >= 5 else ""
+        ipv6_nxt = parts[3] if len(parts) >= 4 else ""
+        esp_spi = parts[4] if len(parts) >= 5 else ""
+        timestamp_raw = parts[5] if len(parts) >= 6 else ""
+        icmp_type = parts[6] if len(parts) >= 7 else ""
+        icmp6_type = parts[7] if len(parts) >= 8 else ""
+        dns_flag = parts[8] if len(parts) >= 9 else ""
+        tls_type = parts[9] if len(parts) >= 10 else ""
+        rtp_flag = parts[10] if len(parts) >= 11 else ""
+        sip_method = parts[11] if len(parts) >= 12 else ""
 
-        if ip_proto == "50" or proto_col.upper() == "ESP" or esp_spi:
+        # Check ESP (IPv4 protocol 50 or IPv6 next header 50)
+        is_esp = (
+            ip_proto == "50"
+            or ipv6_nxt == "50"
+            or proto_col.upper() == "ESP"
+            or bool(esp_spi)
+        )
+
+        if is_esp:
             esp_packet_sizes.append(frame_len)
-
             try:
-                esp_timestamps.append(float(timestamp_raw))
+                esp_timestamps.append(float(timestamp_raw.split(",")[0]))
             except (ValueError, TypeError):
                 esp_timestamps.append(float("nan"))
         else:
-            proto_sizes[proto_col].append(frame_len)
+            # Field-based protocol classification
+            if icmp_type or ip_proto == "1":
+                proto_key = "ICMP"
+            elif icmp6_type or ipv6_nxt == "58":
+                proto_key = "ICMPv6"
+            elif dns_flag or proto_col.upper() == "DNS":
+                proto_key = "DNS"
+            elif tls_type or proto_col.upper() in ("TLS", "SSL", "HTTPS"):
+                proto_key = "TLS"
+            elif rtp_flag:
+                proto_key = "RTP"
+            elif sip_method:
+                proto_key = "SIP"
+            else:
+                proto_key = proto_col
+
+            proto_sizes[proto_key].append(frame_len)
 
     detected_traffic: List[Dict[str, Any]] = []
     heuristic_mode: Optional[str] = None
@@ -150,7 +189,10 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
                     "traffic_type": cat_name,
                     "percentage": pct,
                     "packet_count": count,
-                    "avg_packet_size_bytes": avg_sz
+                    "avg_packet_size_bytes": avg_sz,
+                    "visibility": "inferred_from_esp_metadata",
+                    "evidence_source": "traffic_statistics",
+                    "description": "Inferred from encrypted packet size/IAT distribution; zero plaintext decryption.",
                 })
 
         # Sort descending by packet count
@@ -306,7 +348,10 @@ def analyze_data_plane(pcap_path: str | Path) -> Dict[str, Any]:
                 "traffic_type": label,
                 "percentage": pct,
                 "packet_count": count,
-                "avg_packet_size_bytes": avg_sz
+                "avg_packet_size_bytes": avg_sz,
+                "visibility": "cleartext_on_wire",
+                "evidence_source": "cleartext_on_wire",
+                "description": "Cleartext packet observed directly on capture interface.",
             })
 
         # No IPsec packets observed

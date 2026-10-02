@@ -94,9 +94,22 @@ class ComplianceEngine:
 
         return "NOT_ASSESSED"
 
-    # ------------------------------------------------------------------
-    # Single control evaluation
-    # ------------------------------------------------------------------
+    def evaluate_control(
+        self,
+        standard_name: str,
+        control_name: str,
+        observed_value: Any,
+    ) -> Dict[str, Any]:
+        """Public method to evaluate a single control against a named standard."""
+        std_config = self.standards.get(standard_name, {})
+        controls = std_config.get("controls", {})
+        control_config = controls.get(control_name, {})
+        return self._evaluate_control(
+            standard_name=standard_name,
+            control_name=control_name,
+            observed_value=observed_value,
+            control_config=control_config,
+        )
 
     def _evaluate_control(
         self,

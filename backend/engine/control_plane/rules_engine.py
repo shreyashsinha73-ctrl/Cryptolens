@@ -73,7 +73,8 @@ class RulesEngine:
                 "severity": "HIGH",
                 "category": "Protocol Deprecation",
                 "title": "Legacy Protocol: IKEv1 Detected",
-                "description": "IKEv1 is deprecated by NIST SP 800-77 Rev 1 due to lack of standard identity protection in Aggressive Mode and known offline cracking vulnerabilities."
+                "description": "IKEv1 is deprecated by NIST SP 800-77 Rev 1 due to lack of standard identity protection in Aggressive Mode and known offline cracking vulnerabilities.",
+                "evidence_source": "ike_v1_cleartext",
             })
             vuln_counter += 1
 
@@ -85,7 +86,8 @@ class RulesEngine:
                 "severity": "CRITICAL",
                 "category": "Cipher Strength",
                 "title": f"Prohibited Cipher: {enc}",
-                "description": "Cipher is deprecated and broken (e.g. Sweet32 birthday attacks on 64-bit block size). Upgrade to AES-256-GCM."
+                "description": "Cipher is deprecated and broken (e.g. Sweet32 birthday attacks on 64-bit block size). Upgrade to AES-256-GCM.",
+                "evidence_source": "testbed_config" if "V2" in str(ike_ver).upper() else "ike_v1_cleartext",
             })
             vuln_counter += 1
         elif any(legacy in enc for legacy in LEGACY_CIPHERS):
@@ -95,7 +97,8 @@ class RulesEngine:
                 "severity": "MEDIUM",
                 "category": "Cipher Strength",
                 "title": f"Legacy Cipher Suite: {enc} without AEAD",
-                "description": "CBC mode without integrated authenticated encryption leaves traffic susceptible to padding oracle attacks if not strictly authenticated."
+                "description": "CBC mode without integrated authenticated encryption leaves traffic susceptible to padding oracle attacks if not strictly authenticated.",
+                "evidence_source": "testbed_config" if "V2" in str(ike_ver).upper() else "ike_v1_cleartext",
             })
             vuln_counter += 1
 
@@ -107,7 +110,8 @@ class RulesEngine:
                 "severity": "HIGH",
                 "category": "Integrity",
                 "title": f"Insecure Integrity Hash: {integ}",
-                "description": "Hash function suffers from demonstrated collision attacks (MD5/SHA-1). Replace with SHA-256, SHA-384, or SHA-512."
+                "description": "Hash function suffers from demonstrated collision attacks (MD5/SHA-1). Replace with SHA-256, SHA-384, or SHA-512.",
+                "evidence_source": "ike_sa_init",
             })
             vuln_counter += 1
 
@@ -119,7 +123,8 @@ class RulesEngine:
                 "severity": "CRITICAL",
                 "category": "Key Exchange",
                 "title": f"Weak Diffie-Hellman Group {dh}",
-                "description": "DH groups with modulus < 2048-bit are vulnerable to Logjam discrete logarithm precomputations. Enforce Group 14+ or Group 19 (P-256)."
+                "description": "DH groups with modulus < 2048-bit are vulnerable to Logjam discrete logarithm precomputations. Enforce Group 14+ or Group 19 (P-256).",
+                "evidence_source": "ike_sa_init",
             })
             vuln_counter += 1
         elif self.target_standard == "cnsa2" and dh not in (20, 21):
@@ -129,7 +134,8 @@ class RulesEngine:
                 "severity": "HIGH",
                 "category": "Quantum Resistance",
                 "title": f"Non-Quantum Resistant Key Exchange: Group {dh}",
-                "description": "CNSA 2.0 requires transition to Post-Quantum Cryptography (ML-KEM-1024) or transitionary 384-bit curves."
+                "description": "CNSA 2.0 requires transition to Post-Quantum Cryptography (ML-KEM-1024) or transitionary 384-bit curves.",
+                "evidence_source": "ike_sa_init",
             })
             vuln_counter += 1
 
@@ -141,7 +147,8 @@ class RulesEngine:
                 "severity": "HIGH",
                 "category": "Forward Secrecy",
                 "title": "Perfect Forward Secrecy (PFS) Disabled",
-                "description": "If the main private key is compromised, all past recorded traffic can be retroactively decrypted."
+                "description": "If the main private key is compromised, all past recorded traffic can be retroactively decrypted.",
+                "evidence_source": "testbed_config",
             })
             vuln_counter += 1
 
@@ -154,7 +161,8 @@ class RulesEngine:
                     "severity": "MEDIUM",
                     "category": "Key Lifetime",
                     "title": f"Implausible SA Lifetime: {lifetime} seconds",
-                    "description": "Security Association lifetime is below minimum sane threshold (60s), indicating corrupted or adversarial input."
+                    "description": "Security Association lifetime is below minimum sane threshold (60s), indicating corrupted or adversarial input.",
+                    "evidence_source": "testbed_config",
                 })
                 vuln_counter += 1
             elif lifetime > 28800:
@@ -164,7 +172,8 @@ class RulesEngine:
                     "severity": "LOW",
                     "category": "Key Lifetime",
                     "title": f"Excessive SA Lifetime: {lifetime} seconds",
-                    "description": "Security Association lifetime exceeds NIST recommended 8-hour / 28800-second rekey threshold, increasing key-exposure windows."
+                    "description": "Security Association lifetime exceeds NIST recommended 8-hour / 28800-second rekey threshold, increasing key-exposure windows.",
+                    "evidence_source": "testbed_config",
                 })
                 vuln_counter += 1
 
@@ -176,7 +185,8 @@ class RulesEngine:
                 "severity": "MEDIUM",
                 "category": "Replay Protection",
                 "title": "Extended Sequence Numbers (ESN) Disabled",
-                "description": "Standard 32-bit sequence numbers can wrap around on high-speed gigabit links, leaving sessions vulnerable to replay attacks."
+                "description": "Standard 32-bit sequence numbers can wrap around on high-speed gigabit links, leaving sessions vulnerable to replay attacks.",
+                "evidence_source": "esp_header_metadata",
             })
             vuln_counter += 1
 
