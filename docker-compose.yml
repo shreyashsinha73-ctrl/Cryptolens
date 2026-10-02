@@ -41,12 +41,13 @@ services:
       dockerfile: backend/Dockerfile
     image: cryptolens-backend:latest
     container_name: cryptolens-backend
-    ports:
-      - "8000:8000"
+    network_mode: "host"
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
     volumes:
       - ./backend:/workspace/backend
       - ./captures:/workspace/captures
-    cap_add: [NET_RAW, NET_ADMIN]
     environment:
       - PYTHONUNBUFFERED=1
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
