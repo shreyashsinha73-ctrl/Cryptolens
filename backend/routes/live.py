@@ -31,6 +31,7 @@ from backend.engine.data_plane.classifier import classify_traffic
 from backend.engine.anomaly.detector import AnomalyDetector
 from backend.scoring.scoring_engine import ScoringEngine
 from backend.scoring.compliance_engine import ComplianceEngine
+from backend.engine.control_plane.ike_parser import parse_ike_bytes
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,6 +46,7 @@ _telemetry_queue: queue.Queue = queue.Queue(maxsize=10000)
 _anomaly_detector = AnomalyDetector()
 _scoring_engine = ScoringEngine()
 _compliance_engine = ComplianceEngine()
+_cached_control_plane: Optional[Dict[str, Any]] = None
 
 
 def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List[Dict[str, Any]]:
@@ -738,18 +740,67 @@ async def _run_simulation(job_id: str):
 
 async def _rolling_inference_loop():
     """Periodic rolling inference loop for the live sniffer."""
-    global _sniffer
+    global _sniffer, _cached_control_plane
     while _sniffer is not None:
         await asyncio.sleep(2.0)
         if _sniffer is None:
             break
+
+        # 1. Drain pending IKE control-plane packets
+        pending_ike = _sniffer.state.drain_ike_queue()
+        for ike_rec in pending_ike:
+            if getattr(ike_rec, "raw_bytes", None):
+                cp = parse_ike_bytes(ike_rec.raw_bytes)
+                if cp:
+                    _cached_control_plane = cp
 
         cnn_input = _sniffer.state.get_cnn_input()
         if cnn_input is None:
             continue
 
         try:
+            # 2. Real CNN traffic classification off main thread
             classification = await asyncio.to_thread(classify_traffic, cnn_input)
+
+            # 3. Anomaly detection via AnomalyDetector (PyOD/IsolationForest)
+            lengths = cnn_input.get("lengths", [])
+            iats = cnn_input.get("iats", [])
+            if len(lengths) >= 10:
+                anomaly_res = await asyncio.to_thread(_anomaly_detector.detect, lengths, iats)
+                if anomaly_res.get("is_anomaly"):
+                    alert_payload = {
+                        "type": "anomaly_alert",
+                        "anomaly_label": str(anomaly_res.get("anomaly_label", "ANOMALY")).upper(),
+                        "anomaly_score": float(anomaly_res.get("anomaly_score", 0.85)),
+                        "severity": "CRITICAL" if anomaly_res.get("anomaly_label") in ("replay_attack", "sweet32_block_surface") else "MEDIUM",
+                        "description": str(anomaly_res.get("description", "Flow anomaly detected in rolling window.")),
+                        "timestamp": time.time(),
+                        "top_features": {k: f"{v:+.2f}σ" for k, v in list(anomaly_res.get("feature_contributions", {}).items())[:3]},
+                    }
+                    await ws_manager.broadcast(alert_payload)
+
+            # 4. Real scoring with ScoringEngine & ComplianceEngine
+            if _cached_control_plane:
+                analysis_input = {
+                    "control_plane": _cached_control_plane,
+                    "data_plane": {
+                        "heuristic_mode_prediction": classification.get("mode"),
+                        "llm_mode_prediction": classification.get("mode"),
+                        "ai_confidence_score": classification.get("mode_confidence", 0.9),
+                        "detected_traffic": [{
+                            "traffic_type": classification.get("traffic_type", "https"),
+                            "packet_count": _sniffer.state.total_esp_count,
+                        }]
+                    }
+                }
+                score_eval = _scoring_engine.evaluate(analysis_input)
+                sec_score = score_eval.get("score")
+                security_score = int(round(sec_score)) if sec_score is not None else 100
+                risk_level = score_eval.get("risk_level", "LOW")
+            else:
+                security_score = 100
+                risk_level = "LOW"
+
             payload = {
                 "type": "rolling_score",
                 "timestamp": time.time(),
@@ -761,8 +812,8 @@ async def _rolling_inference_loop():
                 "mode_agreement": True,
                 "traffic_agreement": True,
                 "overall_agreement": True,
-                "security_score": 100,
-                "risk_level": "LOW",
+                "security_score": security_score,
+                "risk_level": risk_level,
             }
             await ws_manager.broadcast(payload)
         except Exception as e:

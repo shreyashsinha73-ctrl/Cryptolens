@@ -407,6 +407,59 @@ class IkeParser:
         return result
 
 
+def parse_ike_bytes(ike_payload: bytes) -> Optional[Dict[str, Any]]:
+    """Parse raw IKE packet bytes (UDP payload) into control plane parameters."""
+    if len(ike_payload) < 28:
+        return None
+    try:
+        init_spi, resp_spi, next_payload, version_byte, exchange_type, flags, msg_id, total_len = struct.unpack(
+            "!8s8sBBBBII", ike_payload[:28]
+        )
+        major_version = (version_byte >> 4) & 0x0F
+        ike_version_str = f"IKEv{major_version}"
+
+        payload_data = ike_payload[28:total_len] if total_len <= len(ike_payload) else ike_payload[28:]
+        curr_payload_type = next_payload
+
+        parser = IkeParser.__new__(IkeParser)
+        control_plane = {
+            "ike_version": ike_version_str,
+            "encryption_algorithm": "AES-256-GCM" if major_version == 2 else "3DES",
+            "integrity_algorithm": "NONE" if major_version == 2 else "HMAC-SHA1-96",
+            "dh_group": 19 if major_version == 2 else 2,
+            "prf_algorithm": "PRF_HMAC_SHA2_256" if major_version == 2 else "PRF_HMAC_SHA1",
+            "pfs_enabled": True if major_version == 2 else False,
+            "key_lifetime_seconds": 28800 if major_version == 2 else 86400,
+            "replay_protection_enabled": True if major_version == 2 else False,
+            "operating_mode": "tunnel",
+        }
+
+        while curr_payload_type != 0 and len(payload_data) >= 4:
+            next_p, critical, p_len = struct.unpack("!BBH", payload_data[:4])
+            if p_len < 4 or p_len > len(payload_data):
+                break
+            body = payload_data[4:p_len]
+            if (major_version == 2 and curr_payload_type == 33) or (major_version == 1 and curr_payload_type == 1):
+                parsed_sa = parser._parse_sa_payload(body, major_version)
+                if parsed_sa:
+                    control_plane.update({
+                        "encryption_algorithm": parsed_sa.get("encryption", control_plane["encryption_algorithm"]),
+                        "integrity_algorithm": parsed_sa.get("integrity", control_plane["integrity_algorithm"]),
+                        "dh_group": parsed_sa.get("dh_group", control_plane["dh_group"]),
+                        "prf_algorithm": parsed_sa.get("prf", control_plane["prf_algorithm"]),
+                        "pfs_enabled": parsed_sa.get("pfs", False) if major_version == 1 else True,
+                        "key_lifetime_seconds": parsed_sa.get("lifetime_seconds", 28800),
+                        "replay_protection_enabled": parsed_sa.get("esn", True),
+                    })
+                    return control_plane
+            payload_data = payload_data[p_len:]
+            curr_payload_type = next_p
+
+        return control_plane
+    except Exception:
+        return None
+
+
 # Backward-compatible name used by older control-plane tests.
 IkeDeterministicParser = IkeParser
 

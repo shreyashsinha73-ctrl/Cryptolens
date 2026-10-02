@@ -76,7 +76,7 @@ class StreamState:
     esp_buffer: deque = field(default_factory=lambda: deque(maxlen=30))
     esp_lengths: deque = field(default_factory=lambda: deque(maxlen=30))
     esp_iats: deque = field(default_factory=lambda: deque(maxlen=30))
-    ike_queue: list = field(default_factory=list)
+    ike_queue: deque = field(default_factory=lambda: deque(maxlen=1000))
     total_esp_count: int = 0
     total_ike_count: int = 0
     last_esp_timestamp: float = 0.0
