@@ -1,11 +1,10 @@
 import asyncio
 import json
-import queue
 import threading
 import time
 import pytest
 
-from backend.streaming.ws_broadcaster import ConnectionManager
+import backend.routes.live as live_module
 from backend.streaming.live_sniffer import ESPPacketRecord
 
 
@@ -33,41 +32,27 @@ async def test_cross_thread_broadcast_batching():
     """
     P0-1 Test:
     Verify that 5,000 synthetic records emitted from a background thread
-    do not raise RuntimeError (e.g. asyncio.get_event_loop in thread),
-    are safely buffered in a bounded queue, and the client receives batched messages
-    every 100-250 ms.
+    into backend.routes.live._telemetry_queue do not raise RuntimeError,
+    and backend.routes.live._telemetry_flusher correctly batches them
+    over ws_manager every 100-250 ms.
     """
-    loop = asyncio.get_running_loop()
-    ws_mgr = ConnectionManager()
     mock_ws = MockWebSocket()
-    await ws_mgr.connect(mock_ws)
+    await live_module.ws_manager.connect(mock_ws)
 
-    telemetry_queue: queue.Queue = queue.Queue(maxsize=10000)
-    stop_event = threading.Event()
-    flusher_running = True
+    # Set mock stream ID and keep sniffer flag active during producer run
+    test_stream_id = "test-stream-p0-1"
+    live_module._current_stream_id = test_stream_id
+    live_module._sniffer = object()  # Non-None indicator to keep flusher alive
 
-    # Async flusher task running on event loop
-    async def flusher():
-        nonlocal flusher_running
-        while flusher_running or not telemetry_queue.empty():
-            batch = []
-            while len(batch) < 500:
-                try:
-                    item = telemetry_queue.get_nowait()
-                    batch.append(item)
-                except queue.Empty:
-                    break
-            if batch:
-                await ws_mgr.broadcast({
-                    "type": "telemetry_batch",
-                    "events": batch,
-                    "count": len(batch)
-                })
-            await asyncio.sleep(0.1)
+    # Drain any existing stale items
+    while not live_module._telemetry_queue.empty():
+        try:
+            live_module._telemetry_queue.get_nowait()
+        except Exception:
+            break
 
-    flusher_task = asyncio.create_task(flusher())
+    flusher_task = asyncio.create_task(live_module._telemetry_flusher(flush_interval=0.05))
 
-    # Background worker thread emitting 5,000 synthetic records
     errors = []
 
     def background_producer():
@@ -82,37 +67,51 @@ async def test_cross_thread_broadcast_batching():
                     spi="0x12345678",
                     seq_num=i + 1,
                 )
-                telemetry_queue.put_nowait(rec.to_dict())
+                pkt_dict = rec.to_dict()
+                pkt_dict["type"] = "esp_event"
+                live_module._telemetry_queue.put_nowait(pkt_dict)
                 if i % 1000 == 0:
                     time.sleep(0.005)
         except Exception as e:
             errors.append(e)
-        finally:
-            stop_event.set()
 
-    thread = threading.Thread(target=background_producer, daemon=True)
-    thread.start()
+    try:
+        thread = threading.Thread(target=background_producer, daemon=True)
+        thread.start()
 
-    # Wait for thread to finish producing
-    await asyncio.to_thread(thread.join, timeout=5.0)
-    assert not errors, f"Background producer encountered errors: {errors}"
+        # Wait for thread to finish producing
+        await asyncio.to_thread(thread.join, timeout=5.0)
+        assert not errors, f"Background producer encountered errors: {errors}"
 
-    # Wait for flusher to drain queue
-    for _ in range(30):
-        if telemetry_queue.empty():
-            break
-        await asyncio.sleep(0.1)
+        # Signal sniffer stop so flusher exits once queue is drained
+        live_module._sniffer = None
 
-    flusher_running = False
-    await flusher_task
+        # Wait for flusher to drain queue and complete
+        for _ in range(50):
+            if live_module._telemetry_queue.empty():
+                break
+            await asyncio.sleep(0.05)
+
+        await asyncio.wait_for(flusher_task, timeout=3.0)
+    finally:
+        live_module._sniffer = None
+        if not flusher_task.done():
+            flusher_task.cancel()
+            try:
+                await flusher_task
+            except asyncio.CancelledError:
+                pass
+        live_module.ws_manager.disconnect(mock_ws)
 
     # Validate received batches
-    assert len(mock_ws.messages) > 0, "Client received no messages"
-    total_events_received = sum(
-        len(m["events"]) for m in mock_ws.messages if m.get("type") == "telemetry_batch"
-    )
+    batch_messages = [m for m in mock_ws.messages if m.get("type") == "telemetry_batch"]
+    assert len(batch_messages) > 0, "Client received no telemetry_batch messages"
+
+    total_events_received = sum(len(m["events"]) for m in batch_messages)
     assert total_events_received == 5000, f"Expected 5,000 events, received {total_events_received}"
 
     # Verify that messages were actually batched (i.e. far fewer messages than 5,000)
-    batch_messages = [m for m in mock_ws.messages if m.get("type") == "telemetry_batch"]
     assert len(batch_messages) < 100, f"Expected batched delivery, but got {len(batch_messages)} messages"
+
+    # Verify stream_id propagation
+    assert all(m.get("stream_id") == test_stream_id for m in batch_messages)
