@@ -11,6 +11,7 @@ import asyncio
 import logging
 import subprocess
 import time
+import queue
 from collections import deque
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -38,6 +39,9 @@ router = APIRouter()
 _sniffer: Optional[LiveSniffer] = None
 _simulation_task: Optional[asyncio.Task] = None
 _injection_task: Optional[asyncio.Task] = None
+_flusher_task: Optional[asyncio.Task] = None
+_inference_task: Optional[asyncio.Task] = None
+_telemetry_queue: queue.Queue = queue.Queue(maxsize=10000)
 _anomaly_detector = AnomalyDetector()
 _scoring_engine = ScoringEngine()
 _compliance_engine = ComplianceEngine()
@@ -308,38 +312,79 @@ async def live_telemetry(websocket: WebSocket):
         ws_manager.disconnect(websocket)
 
 
-@router.post("/api/v1/live/start")
-async def start_live_capture(interface: str = Query(default="any")):
+async def _telemetry_flusher(flush_interval: float = 0.15):
     """
-    Start the real-time packet sniffer on a network interface.
-    Uses asyncio.run_coroutine_threadsafe to dispatch packets safely from the Scapy thread.
+    Batched flusher that consumes from bounded _telemetry_queue every 100-250ms
+    and broadcasts batches over WebSocket. Prevents event-loop task starvation.
     """
     global _sniffer
-
-    if _sniffer is not None:
-        return {"status": "already_running"}
-
-    main_loop = asyncio.get_running_loop()
-    _sniffer = LiveSniffer(interface=interface)
-
     recent_pkts = deque(maxlen=30)
     seen_seqs: Dict[str, int] = {}
     lengths_win: List[float] = []
     iats_win: List[float] = []
     last_ts = time.time()
 
+    try:
+        while _sniffer is not None or not _telemetry_queue.empty():
+            batch = []
+            while len(batch) < 500:
+                try:
+                    pkt = _telemetry_queue.get_nowait()
+                    batch.append(pkt)
+                except queue.Empty:
+                    break
+
+            if batch:
+                for pkt in batch:
+                    now = pkt.get("timestamp", time.time())
+                    iat = max(0.0, now - last_ts)
+                    last_ts = now
+                    pkt_len = float(pkt.get("packet_length", 0))
+                    lengths_win.append(pkt_len)
+                    iats_win.append(iat)
+                    recent_pkts.append(pkt)
+                    if len(lengths_win) > 30:
+                        lengths_win.pop(0)
+                        iats_win.pop(0)
+
+                # Send batched telemetry to connected clients
+                await ws_manager.broadcast({
+                    "type": "telemetry_batch",
+                    "events": batch,
+                    "count": len(batch),
+                })
+
+                # Check anomalies on recent window
+                alert = _analyze_window_for_anomalies(recent_pkts, lengths_win, iats_win, seen_seqs)
+                if alert:
+                    await ws_manager.broadcast(alert)
+
+            await asyncio.sleep(flush_interval)
+    except asyncio.CancelledError:
+        logger.info("Telemetry flusher task cancelled.")
+
+
+@router.post("/api/v1/live/start")
+async def start_live_capture(interface: str = Query(default="any")):
+    """
+    Start the real-time packet sniffer on a network interface.
+    Uses bounded thread-safe queue and batched flusher for non-blocking cross-thread telemetry.
+    """
+    global _sniffer, _flusher_task, _inference_task
+
+    if _sniffer is not None:
+        return {"status": "already_running"}
+
+    _sniffer = LiveSniffer(interface=interface)
+
+    # Drain any stale queue items
+    while not _telemetry_queue.empty():
+        try:
+            _telemetry_queue.get_nowait()
+        except queue.Empty:
+            break
+
     def on_esp(record: ESPPacketRecord):
-        nonlocal last_ts
-        now = time.time()
-        iat = max(0.0, now - last_ts)
-        last_ts = now
-
-        lengths_win.append(float(record.packet_length))
-        iats_win.append(float(iat))
-        if len(lengths_win) > 30:
-            lengths_win.pop(0)
-            iats_win.pop(0)
-
         pkt_dict = {
             "type": "esp_event",
             "frame_number": record.frame_number,
@@ -356,15 +401,10 @@ async def start_live_capture(interface: str = Query(default="any")):
             "details": f"Live ESP: SPI={record.spi or '—'}, Seq={record.seq_num or '—'}, Len={record.packet_length}B",
             "severity": "LOW",
         }
-        recent_pkts.append(pkt_dict)
-
-        # Broadcast packet
-        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(pkt_dict), main_loop)
-
-        # Anomaly check
-        alert = _analyze_window_for_anomalies(recent_pkts, lengths_win, iats_win, seen_seqs)
-        if alert:
-            asyncio.run_coroutine_threadsafe(ws_manager.broadcast(alert), main_loop)
+        try:
+            _telemetry_queue.put_nowait(pkt_dict)
+        except queue.Full:
+            pass
 
     def on_ike(record: IKEPacketRecord):
         pkt_dict = {
@@ -383,21 +423,24 @@ async def start_live_capture(interface: str = Query(default="any")):
             "details": f"Live IKE Handshake: {record.src_ip}:{record.src_port} -> {record.dst_ip}:{record.dst_port}",
             "severity": "LOW",
         }
-        recent_pkts.append(pkt_dict)
-        asyncio.run_coroutine_threadsafe(ws_manager.broadcast(pkt_dict), main_loop)
+        try:
+            _telemetry_queue.put_nowait(pkt_dict)
+        except queue.Full:
+            pass
 
     _sniffer.on_esp(on_esp)
     _sniffer.on_ike(on_ike)
     _sniffer.start()
 
-    asyncio.ensure_future(_rolling_inference_loop())
+    _flusher_task = asyncio.create_task(_telemetry_flusher())
+    _inference_task = asyncio.create_task(_rolling_inference_loop())
     return {"status": "started", "interface": interface}
 
 
 @router.post("/api/v1/live/stop")
 async def stop_live_capture():
     """Stop the real-time packet sniffer, simulation, or active injection."""
-    global _sniffer, _simulation_task, _injection_task
+    global _sniffer, _simulation_task, _injection_task, _flusher_task, _inference_task
     stopped = False
 
     if _sniffer:
@@ -405,13 +448,39 @@ async def stop_live_capture():
         _sniffer = None
         stopped = True
 
+    if _flusher_task and not _flusher_task.done():
+        _flusher_task.cancel()
+        try:
+            await _flusher_task
+        except asyncio.CancelledError:
+            pass
+        _flusher_task = None
+        stopped = True
+
+    if _inference_task and not _inference_task.done():
+        _inference_task.cancel()
+        try:
+            await _inference_task
+        except asyncio.CancelledError:
+            pass
+        _inference_task = None
+        stopped = True
+
     if _simulation_task and not _simulation_task.done():
         _simulation_task.cancel()
+        try:
+            await _simulation_task
+        except asyncio.CancelledError:
+            pass
         _simulation_task = None
         stopped = True
 
     if _injection_task and not _injection_task.done():
         _injection_task.cancel()
+        try:
+            await _injection_task
+        except asyncio.CancelledError:
+            pass
         _injection_task = None
         stopped = True
 

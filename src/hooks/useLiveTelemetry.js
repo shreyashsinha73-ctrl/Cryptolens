@@ -47,6 +47,34 @@ function initWebSocket() {
           case 'connection_ack':
             break;
 
+          case 'telemetry_batch':
+          case 'batch': {
+            const events = data.events || [];
+            if (!events.length) break;
+            state.isStreaming = true;
+            state.streamCompleted = false;
+            const newEsp = [];
+            const newIke = [];
+            const newWire = [];
+            for (const item of events) {
+              const lastWire = newWire[newWire.length - 1] || state.wireEvents[state.wireEvents.length - 1];
+              if (lastWire && item.frame_number !== undefined && lastWire.frame_number === item.frame_number) {
+                continue;
+              }
+              if (item.type === 'esp_event' || item.protocol === 'ESP') {
+                newEsp.push(item);
+              } else if (item.type === 'ike_event' || item.protocol === 'IKE') {
+                newIke.push(item);
+              }
+              newWire.push(item);
+            }
+            if (newEsp.length) state.espEvents = [...state.espEvents, ...newEsp];
+            if (newIke.length) state.ikeEvents = [...state.ikeEvents, ...newIke];
+            if (newWire.length) state.wireEvents = [...state.wireEvents, ...newWire];
+            notifySubscribers();
+            break;
+          }
+
           case 'esp_event':
           case 'ike_event':
           case 'icmp_event':
