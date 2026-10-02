@@ -16,10 +16,27 @@ export function useLiveTelemetry() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamCompleted, setStreamCompleted] = useState(false);
   const [completionMessage, setCompletionMessage] = useState(null);
+
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
+  const seenFramesRef = useRef(new Set());
+
+  const clearWire = useCallback(() => {
+    seenFramesRef.current.clear();
+    setWireEvents([]);
+    setEspEvents([]);
+    setIkeEvents([]);
+    setAnomalyAlerts([]);
+    setRollingScore(null);
+    setStreamCompleted(false);
+    setCompletionMessage(null);
+  }, []);
 
   const connect = useCallback(() => {
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     try {
       const ws = new WebSocket(getWsUrl());
 
@@ -33,57 +50,54 @@ export function useLiveTelemetry() {
           switch (data.type) {
             case 'connection_ack':
               break;
+
             case 'esp_event':
-              setEspEvents((prev) => {
-                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
-                return [...prev.slice(-999), data];
-              });
-              setWireEvents((prev) => {
-                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
-                return [...prev.slice(-1999), data];
-              });
-              setIsStreaming(true);
-              setStreamCompleted(false);
-              break;
             case 'ike_event':
-              setIkeEvents((prev) => {
-                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
-                return [...prev.slice(-499), data];
-              });
-              setWireEvents((prev) => {
-                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
-                return [...prev.slice(-1999), data];
-              });
-              setIsStreaming(true);
-              setStreamCompleted(false);
-              break;
             case 'icmp_event':
             case 'voip_event':
             case 'dns_event':
             case 'web_event':
             case 'wire_packet':
-            case 'inner_event':
-              setWireEvents((prev) => {
-                if (data.frame_number !== undefined && prev.length > 0 && prev[prev.length - 1].frame_number === data.frame_number) return prev;
-                return [...prev.slice(-1999), data];
-              });
+            case 'inner_event': {
+              const fNum = data.frame_number;
+              const fKey = fNum !== undefined && fNum !== null ? `${data.type}_${fNum}` : `${data.type}_${data.timestamp}_${data.spi}_${data.seq_num}`;
+              
+              if (seenFramesRef.current.has(fKey)) {
+                return;
+              }
+              seenFramesRef.current.add(fKey);
+
               setIsStreaming(true);
               setStreamCompleted(false);
+
+              if (data.type === 'esp_event' || data.protocol === 'ESP') {
+                setEspEvents((prev) => [...prev, data]);
+              } else if (data.type === 'ike_event' || data.protocol === 'IKE') {
+                setIkeEvents((prev) => [...prev, data]);
+              }
+
+              setWireEvents((prev) => [...prev, data]);
               break;
+            }
+
             case 'rolling_score':
               setRollingScore(data);
               break;
+
             case 'anomaly_alert':
               setAnomalyAlerts((prev) => [...prev.slice(-99), data]);
               break;
+
             case 'stream_completed':
               setIsStreaming(false);
               setStreamCompleted(true);
               setCompletionMessage(data.message || 'Simulation completed: all packets streamed.');
               break;
+
             case 'stream_stopped':
               setIsStreaming(false);
               break;
+
             default:
               break;
           }
@@ -95,10 +109,14 @@ export function useLiveTelemetry() {
       ws.onclose = () => {
         setIsConnected(false);
         setIsStreaming(false);
+        wsRef.current = null;
         reconnectTimer.current = setTimeout(connect, 3000);
       };
 
-      ws.onerror = () => ws.close();
+      ws.onerror = () => {
+        if (wsRef.current) wsRef.current.close();
+      };
+
       wsRef.current = ws;
     } catch (e) {
       reconnectTimer.current = setTimeout(connect, 3000);
@@ -108,20 +126,13 @@ export function useLiveTelemetry() {
   useEffect(() => {
     connect();
     return () => {
-      if (wsRef.current) wsRef.current.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     };
   }, [connect]);
-
-  const clearWire = useCallback(() => {
-    setWireEvents([]);
-    setEspEvents([]);
-    setIkeEvents([]);
-    setAnomalyAlerts([]);
-    setRollingScore(null);
-    setStreamCompleted(false);
-    setCompletionMessage(null);
-  }, []);
 
   const startCapture = async (iface = 'any') => {
     try {
@@ -153,8 +164,7 @@ export function useLiveTelemetry() {
 
   const injectTraffic = async (profile = 'hardened') => {
     try {
-      setStreamCompleted(false);
-      setCompletionMessage(null);
+      clearWire();
       const res = await fetch(`/api/v1/live/inject/${profile}`, { method: 'POST' });
       const data = await res.json();
       if (data.status === 'injection_started') setIsStreaming(true);
