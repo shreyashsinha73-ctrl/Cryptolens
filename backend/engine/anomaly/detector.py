@@ -188,7 +188,7 @@ class AnomalyDetector:
         description = "Traffic flow appears normal."
 
         if is_anomaly:
-            label, description = self._classify_anomaly_type(features, contributions, packet_lengths)
+            label, description = self._classify_anomaly_type(features, contributions)
 
         return {
             "is_anomaly": is_anomaly,
@@ -199,7 +199,7 @@ class AnomalyDetector:
         }
 
     def _classify_anomaly_type(
-        self, features: np.ndarray, contributions: dict, packet_lengths: Optional[list[float]] = None
+        self, features: np.ndarray, contributions: dict
     ) -> tuple[str, str]:
         """Classify the type of anomaly based on feature deviations."""
         mean_len = features[0]
@@ -207,14 +207,6 @@ class AnomalyDetector:
         burst_ratio = features[10]
         bytes_per_sec = features[13]
         small_ratio = features[9]
-
-        # Sweet32 / 64-bit block alignment:
-        if (packet_lengths and all(int(l) % 8 == 0 for l in packet_lengths) and mean_len < 400) or (mean_len < 350 and std_len < 160 and features[3] <= 1024):
-            return (
-                "sweet32_block_surface",
-                f"Suspicious 64-bit aligned packet sizes (mean={mean_len:.0f}B, std={std_len:.1f}B). "
-                f"Matches deprecated 64-bit block cipher (3DES-CBC) vulnerable to Sweet32 collision attacks."
-            )
 
         # Data exfiltration: unusually high throughput with large packets
         if bytes_per_sec > 50000 and mean_len > 1000:
@@ -241,14 +233,6 @@ class AnomalyDetector:
                 f"High ratio of small packets ({small_ratio:.0%}) with "
                 f"extreme burst ratio ({burst_ratio:.1f}). "
                 f"Possible encrypted DDoS / packet flooding over VPN."
-            )
-
-        # Sweet32 / 64-bit block alignment:
-        if mean_len < 350 and (std_len > 10) and small_ratio > 0.6:
-            return (
-                "sweet32_block_surface",
-                f"Suspicious 64-bit aligned packet sizes (mean={mean_len:.0f}B, std={std_len:.1f}B). "
-                f"Matches deprecated 64-bit block cipher (3DES-CBC) vulnerable to Sweet32 collision attacks."
             )
 
         return (

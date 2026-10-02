@@ -328,8 +328,11 @@ function MainSocApp() {
           ) : (
             /* ── Dashboard ── */
             showEmpty ? (
-              <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl shadow-xs">
-                <EmptyState onUploadPcap={handleUploadPcap} uploading={uploading} />
+              <div className="space-y-6">
+                <LiveTelemetryPanel jobId={null} isRealData={false} />
+                <div className="bg-white dark:bg-[#18191D] border border-gray-200 dark:border-[#2A2C34] rounded-2xl shadow-xs">
+                  <EmptyState onUploadPcap={handleUploadPcap} uploading={uploading} />
+                </div>
               </div>
             ) : showAnalysing ? (
               <AnalysingState jobId={activeJobId} />

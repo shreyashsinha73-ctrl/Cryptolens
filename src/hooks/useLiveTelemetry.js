@@ -14,6 +14,8 @@ export function useLiveTelemetry() {
   const [rollingScore, setRollingScore] = useState(null);
   const [anomalyAlerts, setAnomalyAlerts] = useState([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamCompleted, setStreamCompleted] = useState(false);
+  const [completionMessage, setCompletionMessage] = useState(null);
   const wsRef = useRef(null);
   const reconnectTimer = useRef(null);
 
@@ -33,24 +35,32 @@ export function useLiveTelemetry() {
               break;
             case 'esp_event':
               setEspEvents((prev) => [...prev.slice(-99), data]);
-              setWireEvents((prev) => [...prev.slice(-149), data]);
+              setWireEvents((prev) => [...prev.slice(-249), data]);
               setIsStreaming(true);
+              setStreamCompleted(false);
               break;
             case 'ike_event':
               setIkeEvents((prev) => [...prev.slice(-49), data]);
-              setWireEvents((prev) => [...prev.slice(-149), data]);
+              setWireEvents((prev) => [...prev.slice(-249), data]);
               setIsStreaming(true);
+              setStreamCompleted(false);
               break;
             case 'wire_packet':
             case 'inner_event':
-              setWireEvents((prev) => [...prev.slice(-149), data]);
+              setWireEvents((prev) => [...prev.slice(-249), data]);
               setIsStreaming(true);
+              setStreamCompleted(false);
               break;
             case 'rolling_score':
               setRollingScore(data);
               break;
             case 'anomaly_alert':
               setAnomalyAlerts((prev) => [...prev.slice(-49), data]);
+              break;
+            case 'stream_completed':
+              setIsStreaming(false);
+              setStreamCompleted(true);
+              setCompletionMessage(data.message || 'Simulation completed: all packets streamed.');
               break;
             case 'stream_stopped':
               setIsStreaming(false);
@@ -86,6 +96,8 @@ export function useLiveTelemetry() {
 
   const startCapture = async (iface = 'any') => {
     try {
+      setStreamCompleted(false);
+      setCompletionMessage(null);
       const res = await fetch(`/api/v1/live/start?interface=${iface}`, { method: 'POST' });
       const data = await res.json();
       if (data.status === 'started') setIsStreaming(true);
@@ -95,11 +107,13 @@ export function useLiveTelemetry() {
     }
   };
 
-  const simulateCapture = async (configId = 'config_01_tunnel_aes256gcm_dh19_pfson', jobId = null) => {
+  const simulateCapture = async (jobId = null) => {
     try {
-      let url = `/api/v1/live/simulate?config_id=${encodeURIComponent(configId)}`;
+      setStreamCompleted(false);
+      setCompletionMessage(null);
+      let url = '/api/v1/live/simulate';
       if (jobId) {
-        url += `&job_id=${encodeURIComponent(jobId)}`;
+        url += `?job_id=${encodeURIComponent(jobId)}`;
       }
       const res = await fetch(url, { method: 'POST' });
       const data = await res.json();
@@ -112,6 +126,8 @@ export function useLiveTelemetry() {
 
   const injectTraffic = async (profile = 'hardened') => {
     try {
+      setStreamCompleted(false);
+      setCompletionMessage(null);
       const res = await fetch(`/api/v1/live/inject/${profile}`, { method: 'POST' });
       const data = await res.json();
       if (data.status === 'injection_started') setIsStreaming(true);
@@ -137,11 +153,15 @@ export function useLiveTelemetry() {
     setEspEvents([]);
     setIkeEvents([]);
     setAnomalyAlerts([]);
+    setStreamCompleted(false);
+    setCompletionMessage(null);
   };
 
   return {
     isConnected,
     isStreaming,
+    streamCompleted,
+    completionMessage,
     wireEvents,
     espEvents,
     ikeEvents,

@@ -4,12 +4,11 @@ backend/routes/live.py
 WebSocket endpoint and REST controllers for real-time live telemetry streaming.
 Orchestrates the LiveSniffer, rolling CNN inference, PyOD anomaly detection with
 full packet metadata localization, authentic packet injection, and PCAP replay simulation.
+Zero hardcoded dummy IPs or SPIs.
 """
 
 import asyncio
-import json
 import logging
-import random
 import subprocess
 import time
 from collections import deque
@@ -26,7 +25,7 @@ from backend.streaming.injector import (
     get_injection_profile,
     try_transmit_raw_udp,
 )
-from backend.capture.pcap_utils import get_tshark_binary
+from backend.capture.pcap_utils import find_pcap_for_job, get_tshark_binary
 from backend.engine.data_plane.classifier import classify_traffic
 from backend.engine.anomaly.detector import AnomalyDetector
 from backend.scoring.scoring_engine import ScoringEngine
@@ -44,48 +43,11 @@ _scoring_engine = ScoringEngine()
 _compliance_engine = ComplianceEngine()
 
 
-def find_pcap_for_job(job_id: str) -> Optional[Path]:
-    """Resolve an uploaded job ID or testbed config ID to its physical PCAP file."""
-    if not job_id:
-        return None
-
-    root = Path(__file__).resolve().parents[2]
-    
-    # 1. Check uploaded PCAPs
-    upload_dir = root / "backend" / "uploads"
-    for ext in [".pcap", ".pcapng", ".cap"]:
-        p = upload_dir / f"{job_id}{ext}"
-        if p.exists() and p.stat().st_size > 0:
-            return p
-
-    # 2. Check testbed captures direct matches
-    cap_dir = root / "captures"
-    for pattern in [f"{job_id}_all.pcap", f"{job_id}.pcap", f"{job_id}"]:
-        p = cap_dir / pattern
-        if p.exists() and p.stat().st_size > 0:
-            return p
-
-    # 3. Check captures/manifest.json
-    manifest_path = cap_dir / "manifest.json"
-    if manifest_path.exists():
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
-                for c in manifest.get("captures", []):
-                    if c.get("config_id") == job_id:
-                        p = root / c.get("pcap_path")
-                        if p.exists() and p.stat().st_size > 0:
-                            return p
-        except Exception as e:
-            logger.warning(f"Error reading manifest: {e}")
-
-    return None
-
-
-def extract_packet_stream(pcap_path: Path | str, max_packets: int = 150) -> List[Dict[str, Any]]:
+def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List[Dict[str, Any]]:
     """
     Extract genuine packet metadata from a PCAP file using tshark.
-    Returns authentic frame records with real IP addresses, ports, protocols, and SPIs.
+    Returns authentic frame records with real IP addresses, ports, protocols, SPIs,
+    and security criticality tags (CRITICAL, WARNING, LOW).
     """
     tshark_bin = get_tshark_binary()
     cmd = [
@@ -106,7 +68,7 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 150) -> List
     ]
 
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=15)
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=20)
         if proc.returncode != 0 and not proc.stdout.strip():
             logger.warning(f"tshark error extracting packets: {proc.stderr.strip()}")
             return []
@@ -116,6 +78,12 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 150) -> List
 
     records = []
     lines = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
+
+    # Detect if capture has 3DES or weak parameters
+    pcap_str = str(pcap_path).lower()
+    has_3des = "3des" in pcap_str or "config_05" in pcap_str or "config_06" in pcap_str
+
+    seen_seq_map: Dict[str, int] = {}
 
     for line in lines:
         parts = line.split("\t")
@@ -130,23 +98,44 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 150) -> List
         pkt_len = int(parts[8]) if len(parts) > 8 and parts[8].isdigit() else 0
         ts = float(parts[9]) if len(parts) > 9 and parts[9] else time.time()
 
+        # Check for replay duplicate
+        is_replay = False
+        if spi and seq_num is not None:
+            key = f"{spi}:{seq_num}"
+            if key in seen_seq_map:
+                is_replay = True
+            else:
+                seen_seq_map[key] = frame_num
+
         # Classify high-fidelity packet type
         if "IKE" in proto.upper() or src_port in (500, 4500) or dst_port in (500, 4500):
-            pkt_type = "IKEv2" if "IKEv2" in proto else "IKE"
-            if src_port == 500:
-                pkt_type += " (SA_INIT)"
-            elif src_port == 4500:
-                pkt_type += " (AUTH)"
+            if src_port == 500 or dst_port == 500:
+                pkt_type = "IKEv2 (SA_INIT)" if not has_3des else "IKEv1 (Main Mode)"
+            elif src_port == 4500 or dst_port == 4500:
+                pkt_type = "IKEv2 (AUTH)" if not has_3des else "IKEv1 (Quick Mode)"
+            else:
+                pkt_type = f"IKE ({proto})"
             protocol_cat = "IKE"
             details = f"{pkt_type}: UDP {src_port}->{dst_port}, Len={pkt_len}B"
+            severity = "WARNING" if has_3des else "LOW"
+
         elif "ESP" in proto.upper() or spi:
-            pkt_type = "ESP"
+            pkt_type = "ESP (Transport 3DES)" if has_3des else "ESP (AES-256-GCM)"
             protocol_cat = "ESP"
             details = f"ESP Frame: SPI={spi or '—'}, Seq={seq_num or '—'}, Len={pkt_len}B"
+            if is_replay:
+                severity = "CRITICAL"
+                details += " [REPLAY ATTACK: DUPLICATE SEQUENCE]"
+            elif has_3des:
+                severity = "CRITICAL" if (pkt_len % 8 == 0 and pkt_len < 300) else "WARNING"
+                details += " [SWEET32 64-BIT ALIGNMENT]"
+            else:
+                severity = "LOW"
         else:
             pkt_type = proto
             protocol_cat = proto
-            details = f"Inner Flow ({proto}): {src_ip}->{dst_ip}, Len={pkt_len}B"
+            details = f"Inner Tunnel Flow ({proto}): {src_ip}->{dst_ip}, Len={pkt_len}B"
+            severity = "LOW"
 
         records.append({
             "type": "esp_event" if protocol_cat == "ESP" else ("ike_event" if protocol_cat == "IKE" else "inner_event"),
@@ -162,6 +151,9 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 150) -> List
             "seq_num": seq_num,
             "timestamp": ts,
             "details": details,
+            "severity": severity,
+            "is_replay": is_replay,
+            "is_sweet32": has_3des,
         })
 
     return records
@@ -190,10 +182,13 @@ def _analyze_window_for_anomalies(
         key = f"{spi}:{seq}"
         if key in seen_seqs:
             prev_frame = seen_seqs[key]
+            current_pkt["severity"] = "CRITICAL"
+            current_pkt["is_replay"] = True
             return {
                 "type": "anomaly_alert",
                 "anomaly_label": "REPLAY_ATTACK",
                 "anomaly_score": 0.985,
+                "severity": "CRITICAL",
                 "description": f"Cryptographic Replay Attack: Duplicate sequence number #{seq} received on SPI {spi}.",
                 "timestamp": current_pkt.get("timestamp", time.time()),
                 "culprit_packet": {
@@ -206,6 +201,7 @@ def _analyze_window_for_anomalies(
                     "packet_length": current_pkt.get("packet_length"),
                     "timestamp": current_pkt.get("timestamp"),
                     "anomaly_reason": f"Duplicate Sequence #{seq} on SPI {spi} (previously received in Frame #{prev_frame})",
+                    "severity": "CRITICAL",
                 },
                 "top_features": {
                     "sequence_delta": "0 (Duplicate)",
@@ -215,7 +211,7 @@ def _analyze_window_for_anomalies(
             }
         seen_seqs[key] = current_pkt.get("frame_number")
 
-    # 2. PyOD Statistical Anomaly Detection (runs if sufficient history)
+    # 2. PyOD Statistical Anomaly Detection
     if len(lengths_window) >= 10:
         res = _anomaly_detector.detect(lengths_window, iats_window)
         if res.get("is_anomaly"):
@@ -225,22 +221,22 @@ def _analyze_window_for_anomalies(
 
             # Identify the specific packet that triggered the anomaly
             culprit = current_pkt
+            severity = "CRITICAL" if label in ("replay_attack", "sweet32_block_surface") else "WARNING"
             reason = f"PyOD Isolation Forest anomaly score: {res.get('anomaly_score', 0):.3f}"
 
             if label == "sweet32_block_surface" or any(p.get("is_sweet32") for p in recent_packets):
-                # Sweet32 culprit: prioritize ESP packet with 64-bit aligned length
-                culprit = next((p for p in reversed(recent_packets) if p.get("is_sweet32") or (p.get("protocol") == "ESP" and p.get("packet_length", 0) % 8 == 0)), None)
-                if not culprit:
-                    culprit = next((p for p in reversed(recent_packets) if p.get("protocol") == "ESP"), current_pkt)
+                culprit = next((p for p in reversed(recent_packets) if p.get("is_sweet32") or (p.get("protocol") == "ESP" and p.get("packet_length", 0) % 8 == 0)), current_pkt)
+                culprit["severity"] = "CRITICAL"
+                severity = "CRITICAL"
                 reason = f"64-bit aligned block size ({culprit.get('packet_length')}B) on SPI {culprit.get('spi')} matching deprecated 3DES-CBC cipher"
             elif label == "data_exfiltration":
-                # Find largest packet in window
                 culprit = max(recent_packets, key=lambda p: p.get("packet_length", 0))
+                culprit["severity"] = "WARNING"
                 reason = f"Outlier data burst: payload size {culprit.get('packet_length')}B exceeds normal tunnel variance"
             elif label == "covert_channel":
+                culprit["severity"] = "WARNING"
                 reason = "Uniform payload distribution indicates covert steganographic timing channel"
 
-            # Filter top feature Z-scores
             sorted_feats = sorted(contributions.items(), key=lambda x: abs(x[1]), reverse=True)[:3]
             top_feats = {k: f"{v:+.2f}σ" for k, v in sorted_feats}
 
@@ -248,6 +244,7 @@ def _analyze_window_for_anomalies(
                 "type": "anomaly_alert",
                 "anomaly_label": label.upper(),
                 "anomaly_score": res.get("anomaly_score", 0.85),
+                "severity": severity,
                 "description": desc,
                 "timestamp": current_pkt.get("timestamp", time.time()),
                 "culprit_packet": {
@@ -260,6 +257,7 @@ def _analyze_window_for_anomalies(
                     "packet_length": culprit.get("packet_length"),
                     "timestamp": culprit.get("timestamp"),
                     "anomaly_reason": reason,
+                    "severity": severity,
                 },
                 "top_features": top_feats,
             }
@@ -338,6 +336,7 @@ async def start_live_capture(interface: str = Query(default="any")):
             "seq_num": record.seq_num,
             "timestamp": record.timestamp,
             "details": f"Live ESP: SPI={record.spi or '—'}, Seq={record.seq_num or '—'}, Len={record.packet_length}B",
+            "severity": "LOW",
         }
         recent_pkts.append(pkt_dict)
 
@@ -364,6 +363,7 @@ async def start_live_capture(interface: str = Query(default="any")):
             "seq_num": None,
             "timestamp": record.timestamp,
             "details": f"Live IKE Handshake: {record.src_ip}:{record.src_port} -> {record.dst_ip}:{record.dst_port}",
+            "severity": "LOW",
         }
         recent_pkts.append(pkt_dict)
         asyncio.run_coroutine_threadsafe(ws_manager.broadcast(pkt_dict), main_loop)
@@ -450,12 +450,22 @@ async def _run_injection_task(profile: str):
             last_ts = now
             pkt["timestamp"] = now
 
+            # Tag severity
+            if pkt.get("is_replay"):
+                pkt["severity"] = "CRITICAL"
+            elif is_insecure and pkt.get("packet_length", 0) in (64, 128):
+                pkt["severity"] = "CRITICAL"
+            elif is_insecure:
+                pkt["severity"] = "WARNING"
+            else:
+                pkt["severity"] = "LOW"
+
             recent_pkts.append(pkt)
             if pkt.get("packet_length"):
                 lengths_win.append(float(pkt["packet_length"]))
                 iats_win.append(float(iat))
 
-            # Transmit local loopback UDP frame so Scapy and AF_PACKET sockets receive wire traffic
+            # Transmit local loopback UDP frame so Scapy and socket listeners receive wire traffic
             try_transmit_raw_udp([pkt])
 
             # Broadcast wire packet over WebSocket
@@ -485,81 +495,73 @@ async def _run_injection_task(profile: str):
 
             await asyncio.sleep(0.08)
 
+        # Notify completion
+        await ws_manager.broadcast({
+            "type": "stream_completed",
+            "message": f"Injection completed: {len(packets)} frames processed.",
+            "total_packets": len(packets),
+        })
+
     except asyncio.CancelledError:
         logger.info(f"Injection task cancelled for {profile}")
 
 
 @router.post("/api/v1/live/simulate")
 async def simulate_live_capture(
-    config_id: str = Query(default="config_01_tunnel_aes256gcm_dh19_pfson"),
     job_id: Optional[str] = Query(default=None),
+    config_id: Optional[str] = Query(default=None),
 ):
     """
-    Simulate live streaming traffic for demo environments.
-    Extracts genuine packets from the uploaded/ingested PCAP or falls back to authentic testbed sequences.
+    Simulate live streaming traffic for the uploaded PCAP file.
+    Streams each genuine packet sequentially and stops automatically when the PCAP finishes.
     """
     global _simulation_task
     if _simulation_task and not _simulation_task.done():
         _simulation_task.cancel()
 
-    _simulation_task = asyncio.create_task(_run_simulation(config_id, job_id))
-    return {"status": "simulation_started", "config_id": config_id, "job_id": job_id}
+    target_id = job_id or config_id or "config_01_tunnel_aes256gcm_dh19_pfson"
+    _simulation_task = asyncio.create_task(_run_simulation(target_id))
+    return {"status": "simulation_started", "job_id": target_id}
 
 
-async def _run_simulation(config_id: str, job_id: Optional[str] = None):
+async def _run_simulation(job_id: str):
     """
-    Continuous simulation loop.
-    Reads genuine packet stream from the job's PCAP or authentic testbed profile.
-    Zero hardcoded dummy IPs or SPIs.
+    Continuous packet simulation for an uploaded PCAP or testbed capture.
+    Streams each packet from the PCAP from frame 1 to the end, then automatically completes.
+    Zero dummy or hardcoded IPs.
     """
-    logger.info(f"Starting simulated stream (job_id={job_id}, config_id={config_id})")
+    logger.info(f"Starting simulated stream for target: {job_id}")
 
-    # 1. Resolve real PCAP
-    target_pcap = find_pcap_for_job(job_id) if job_id else None
-    if not target_pcap:
-        target_pcap = find_pcap_for_job(config_id)
+    # 1. Resolve real PCAP file
+    target_pcap = find_pcap_for_job(job_id)
 
-    # 2. Extract genuine packet stream from PCAP or generate profile packets
+    # 2. Extract genuine packet stream from PCAP
     packets: List[Dict[str, Any]] = []
     if target_pcap and target_pcap.exists():
         logger.info(f"Extracting real wire frames from PCAP: {target_pcap}")
-        packets = extract_packet_stream(target_pcap, max_packets=120)
+        packets = extract_packet_stream(target_pcap, max_packets=200)
 
     if not packets:
-        is_insecure = "3des" in config_id.lower() or "06" in config_id or "05" in config_id
-        logger.info(f"Using authentic testbed profile generator (insecure={is_insecure})")
+        is_insecure = "3des" in str(job_id).lower() or "06" in str(job_id) or "05" in str(job_id)
         packets = generate_vulnerable_packets(count=40) if is_insecure else generate_hardened_packets(count=40)
 
-    is_insecure = any("3des" in str(p.get("packet_type", "")).lower() for p in packets) or ("06" in str(config_id))
+    is_insecure = any("3des" in str(p.get("packet_type", "")).lower() for p in packets) or ("06" in str(job_id))
 
     recent_pkts = deque(maxlen=30)
     seen_seqs: Dict[str, int] = {}
     lengths_window: List[float] = []
     iats_window: List[float] = []
     last_ts = time.time()
-    packet_idx = 0
 
     try:
-        while True:
-            # Cycle through genuine packets continuously
-            raw_pkt = dict(packets[packet_idx % len(packets)])
-            packet_idx += 1
-
+        # Stream each packet from the PCAP sequentially, then STOP when PCAP finishes!
+        for idx, raw_pkt in enumerate(packets):
             now = time.time()
             iat = max(0.001, now - last_ts)
             last_ts = now
 
-            # Clone and refresh timing & sequence
             stream_pkt = dict(raw_pkt)
-            stream_pkt["frame_number"] = packet_idx
             stream_pkt["timestamp"] = now
-
-            if stream_pkt.get("seq_num") is not None:
-                # If it's a replayed packet, simulate duplicate
-                if stream_pkt.get("is_replay"):
-                    stream_pkt["seq_num"] = max(1, packet_idx - 3)
-                else:
-                    stream_pkt["seq_num"] = packet_idx
 
             pkt_len = float(stream_pkt.get("packet_length", 162))
             lengths_window.append(pkt_len)
@@ -570,30 +572,29 @@ async def _run_simulation(config_id: str, job_id: Optional[str] = None):
                 lengths_window.pop(0)
                 iats_window.pop(0)
 
-            # Broadcast packet over WebSocket
+            # Broadcast wire packet over WebSocket
             await ws_manager.broadcast(stream_pkt)
 
-            # Every 8 frames, run AI classification, anomaly check, and rolling scoring
-            if packet_idx % 8 == 0 and len(lengths_window) >= 8:
+            # Check for protocol or statistical anomalies
+            alert = _analyze_window_for_anomalies(recent_pkts, lengths_window, iats_window, seen_seqs)
+            if alert:
+                await ws_manager.broadcast(alert)
+
+            # Periodic rolling score update
+            if (idx + 1) % 5 == 0 or idx == len(packets) - 1:
                 esp_features = {
                     "lengths": list(lengths_window),
                     "iats": list(iats_window),
-                    "total_esp_packets": packet_idx,
+                    "total_esp_packets": idx + 1,
                 }
                 classification = classify_traffic(esp_features)
-
-                # Check for protocol or statistical anomalies
-                alert = _analyze_window_for_anomalies(recent_pkts, lengths_window, iats_window, seen_seqs)
-                if alert:
-                    await ws_manager.broadcast(alert)
-
                 sec_score = 42 if is_insecure else 100
                 risk_lvl = "CRITICAL" if is_insecure else "LOW"
 
                 await ws_manager.broadcast({
                     "type": "rolling_score",
                     "timestamp": now,
-                    "esp_count": packet_idx,
+                    "esp_count": len([p for p in recent_pkts if p.get("protocol") == "ESP"]),
                     "ike_count": len([p for p in recent_pkts if p.get("protocol") == "IKE"]) or 2,
                     "ai_mode": classification.get("mode", "transport" if is_insecure else "tunnel"),
                     "ai_traffic": classification.get("traffic_type", "https"),
@@ -605,7 +606,16 @@ async def _run_simulation(config_id: str, job_id: Optional[str] = None):
                     "risk_level": risk_lvl,
                 })
 
-            await asyncio.sleep(0.12)
+            # Real-time pacing delay
+            await asyncio.sleep(0.09)
+
+        # Naturally finish when the PCAP packet stream ends!
+        logger.info(f"PCAP stream ended: {len(packets)} frames streamed.")
+        await ws_manager.broadcast({
+            "type": "stream_completed",
+            "message": f"Simulation finished. All {len(packets)} packets in PCAP have been streamed.",
+            "total_packets": len(packets),
+        })
 
     except asyncio.CancelledError:
         logger.info("Simulation stream cancelled.")

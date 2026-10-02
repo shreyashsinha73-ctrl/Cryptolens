@@ -6,6 +6,8 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
   const {
     isConnected,
     isStreaming,
+    streamCompleted,
+    completionMessage,
     wireEvents,
     espEvents,
     ikeEvents,
@@ -18,21 +20,21 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
     clearWire,
   } = useLiveTelemetry();
 
-  const [simConfig, setSimConfig] = useState(jobId ? 'current_job' : 'config_01_tunnel_aes256gcm_dh19_pfson');
   const [wireFilter, setWireFilter] = useState('all');
-  const [expandedAlert, setExpandedAlert] = useState(null);
+  const [selectedPacket, setSelectedPacket] = useState(null);
 
   const handleSimulate = () => {
-    if (simConfig === 'current_job') {
-      simulateCapture('config_01_tunnel_aes256gcm_dh19_pfson', jobId);
+    if (jobId) {
+      simulateCapture(jobId);
     } else {
-      simulateCapture(simConfig, null);
+      simulateCapture();
     }
   };
 
   const filteredWire = wireEvents.filter((pkt) => {
     if (wireFilter === 'esp') return pkt.protocol === 'ESP' || pkt.packet_type?.includes('ESP');
     if (wireFilter === 'ike') return pkt.protocol === 'IKE' || pkt.packet_type?.includes('IKE');
+    if (wireFilter === 'anomaly') return pkt.severity === 'CRITICAL' || pkt.severity === 'WARNING' || pkt.is_replay;
     return true;
   });
 
@@ -61,48 +63,46 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
               <span>{isStreaming ? 'Live Stream Active' : isConnected ? 'WebSocket Connected' : 'Disconnected'}</span>
               {isStreaming && (
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  REAL-TIME
+                  STREAMING
+                </span>
+              )}
+              {streamCompleted && !isStreaming && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                  PCAP COMPLETED
                 </span>
               )}
             </div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
               {isStreaming
-                ? `${wireEvents.length} total packets (${espEvents.length} ESP | ${ikeEvents.length} IKE)`
-                : 'Select simulation or traffic injection to start telemetry'}
+                ? `${wireEvents.length} frames ingested (${espEvents.length} ESP | ${ikeEvents.length} IKE)`
+                : streamCompleted
+                ? completionMessage || `All ${wireEvents.length} packets streamed successfully.`
+                : jobId
+                ? `Uploaded PCAP ready for replay: ${jobId}`
+                : 'Live sniffer ready'}
             </div>
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Controls - NO DROPDOWN MENU */}
         <div className="flex items-center gap-2 flex-wrap">
-          <select
-            value={simConfig}
-            onChange={(e) => setSimConfig(e.target.value)}
-            disabled={isStreaming}
-            className="text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-[#38465B] bg-white dark:bg-[#232D3F] text-gray-700 dark:text-gray-200 font-medium outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            {jobId && (
-              <option value="current_job">Current PCAP ({jobId})</option>
-            )}
-            <option value="config_01_tunnel_aes256gcm_dh19_pfson">Config 01: Hardened (AES-256-GCM / DH19)</option>
-            <option value="config_06_tunnel_3des_sha1_dh2_pfsoff">Config 06: Vulnerable (3DES / Replay Attack)</option>
-            <option value="config_05_transport_3des_sha1_dh2_pfsoff">Config 05: Transport 3DES (Metadata Leak)</option>
-          </select>
+          {/* Simulate Stream appears ONLY when a PCAP is uploaded/ingested (jobId is present) */}
+          {(jobId || isRealData) && (
+            <button
+              onClick={handleSimulate}
+              disabled={isStreaming}
+              className="text-xs px-3.5 py-2 font-bold rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+              title={`Simulate uploaded PCAP: ${jobId}`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Simulate Stream
+            </button>
+          )}
 
-          {/* Simulate Stream */}
-          <button
-            onClick={handleSimulate}
-            disabled={isStreaming}
-            className="text-xs px-3.5 py-2 font-bold rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Simulate Stream
-          </button>
-
-          {/* Live Sniff */}
+          {/* Live Sniff (Always available) */}
           <button
             onClick={() => startCapture('any')}
             disabled={isStreaming}
@@ -154,6 +154,17 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
         </div>
       </div>
 
+      {/* Stream Completion Banner */}
+      {streamCompleted && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-4 py-3 rounded-xl text-xs font-semibold flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            ✓ {completionMessage || `PCAP Stream finished: all ${wireEvents.length} frames streamed.`}
+          </span>
+          <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">Natural End of File</span>
+        </div>
+      )}
+
       {/* Rolling Metrics */}
       {rollingScore && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -191,10 +202,10 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
           />
           <MetricTile
             label="Replay Guard"
-            value={rollingScore.risk_level === 'CRITICAL' ? 'VIOLATION DETECTED' : 'Active Window'}
+            value={rollingScore.risk_level === 'CRITICAL' ? 'VIOLATION' : 'Active Window'}
             sub={
               rollingScore.risk_level === 'CRITICAL' ? (
-                <span className="text-red-500 font-bold">Duplicate Seq # Injected</span>
+                <span className="text-red-500 font-bold">Duplicate Seq Detected</span>
               ) : (
                 <span className="text-emerald-500">Strictly Monotonic</span>
               )
@@ -203,123 +214,75 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
         </div>
       )}
 
-      {/* Anomaly Alerts Section with Full Packet Metadata Localization */}
-      {anomalyAlerts.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+      {/* Selected Packet Metadata Modal / Inspector */}
+      {selectedPacket && (
+        <div className="rounded-xl border border-blue-500/40 bg-blue-500/5 dark:bg-blue-500/10 p-4 transition-all">
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-blue-500/20">
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                Frame #{selectedPacket.frame_number} Metadata Inspector
               </span>
-              Security &amp; Protocol Anomaly Detections ({anomalyAlerts.length})
+              <span
+                className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
+                  selectedPacket.severity === 'CRITICAL' || selectedPacket.is_replay
+                    ? 'bg-red-500 text-white'
+                    : selectedPacket.severity === 'WARNING'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-emerald-500 text-white'
+                }`}
+              >
+                {selectedPacket.severity === 'CRITICAL' || selectedPacket.is_replay
+                  ? 'CRITICAL THREAT'
+                  : selectedPacket.severity === 'WARNING'
+                  ? 'MODERATE WARNING'
+                  : 'SECURE / VERIFIED'}
+              </span>
             </div>
-            <span className="text-[11px] font-mono text-gray-500 dark:text-gray-400">
-              PyOD Isolation Forest &amp; Wire Validation
-            </span>
+            <button
+              onClick={() => setSelectedPacket(null)}
+              className="text-xs font-bold text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 cursor-pointer"
+            >
+              ✕ Close
+            </button>
           </div>
 
-          <div className="space-y-2.5">
-            {anomalyAlerts.slice(-3).reverse().map((a, i) => {
-              const culprit = a.culprit_packet;
-              const isExpanded = expandedAlert === i;
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 text-xs font-mono">
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Packet Type</span>
+              <span className="font-bold text-purple-600 dark:text-purple-400">{selectedPacket.packet_type}</span>
+            </div>
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Wire Flow</span>
+              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate block">
+                {selectedPacket.src_ip} &rarr; {selectedPacket.dst_ip}
+              </span>
+            </div>
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">SPI (Hex)</span>
+              <span className="font-bold text-amber-600 dark:text-amber-400">{selectedPacket.spi || '—'}</span>
+            </div>
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Sequence #</span>
+              <span className={`font-bold ${selectedPacket.is_replay ? 'text-red-500 underline' : 'text-gray-800 dark:text-gray-200'}`}>
+                {selectedPacket.seq_num !== null && selectedPacket.seq_num !== undefined ? selectedPacket.seq_num : '—'}
+                {selectedPacket.is_replay && ' [REPLAY]'}
+              </span>
+            </div>
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Wire Length</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400">{selectedPacket.packet_length} Bytes</span>
+            </div>
+            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 block">Timestamp</span>
+              <span className="text-gray-600 dark:text-gray-300 truncate block">
+                {typeof selectedPacket.timestamp === 'number' ? selectedPacket.timestamp.toFixed(3) : selectedPacket.timestamp}
+              </span>
+            </div>
+          </div>
 
-              return (
-                <div
-                  key={i}
-                  className="rounded-xl border border-red-500/30 bg-red-500/5 dark:bg-red-500/10 p-4 transition-all"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-red-500/20">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded text-[11px] font-black uppercase tracking-wider bg-red-500 text-white shadow-xs">
-                        {a.anomaly_label}
-                      </span>
-                      <span className="text-xs font-semibold text-red-700 dark:text-red-300">
-                        {a.description}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono font-bold text-red-600 dark:text-red-400">
-                        Score: {typeof a.anomaly_score === 'number' ? a.anomaly_score.toFixed(3) : a.anomaly_score}
-                      </span>
-                      <button
-                        onClick={() => setExpandedAlert(isExpanded ? null : i)}
-                        className="text-[11px] font-bold text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 underline cursor-pointer"
-                      >
-                        {isExpanded ? 'Hide Raw Details' : 'Full Packet Metadata'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Culprit Packet Metadata Table */}
-                  {culprit && (
-                    <div className="mt-3 pt-1">
-                      <div className="text-[10px] uppercase font-bold tracking-wider text-gray-500 dark:text-gray-400 mb-2">
-                        Triggering Culprit Packet Attribution:
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 text-xs font-mono">
-                        <div className="bg-white/80 dark:bg-[#1E2530] p-2 rounded-lg border border-red-500/20">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 block">Frame #</span>
-                          <span className="font-bold text-blue-600 dark:text-blue-400">#{culprit.frame_number}</span>
-                        </div>
-                        <div className="bg-white/80 dark:bg-[#1E2530] p-2 rounded-lg border border-red-500/20">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 block">Type</span>
-                          <span className="font-bold text-purple-600 dark:text-purple-400">{culprit.packet_type}</span>
-                        </div>
-                        <div className="bg-white/80 dark:bg-[#1E2530] p-2 rounded-lg border border-red-500/20">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 block">Src &rarr; Dst</span>
-                          <span className="font-semibold text-gray-700 dark:text-gray-200 truncate block">
-                            {culprit.src_ip} &rarr; {culprit.dst_ip}
-                          </span>
-                        </div>
-                        <div className="bg-white/80 dark:bg-[#1E2530] p-2 rounded-lg border border-red-500/20">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 block">SPI</span>
-                          <span className="font-bold text-amber-600 dark:text-amber-400">{culprit.spi || '—'}</span>
-                        </div>
-                        <div className="bg-white/80 dark:bg-[#1E2530] p-2 rounded-lg border border-red-500/20">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 block">Seq #</span>
-                          <span className={`font-bold ${a.anomaly_label === 'REPLAY_ATTACK' ? 'text-red-500 underline font-black' : 'text-gray-700 dark:text-gray-200'}`}>
-                            {culprit.seq_num || '—'} {a.anomaly_label === 'REPLAY_ATTACK' && '⚠ REPLAY'}
-                          </span>
-                        </div>
-                        <div className="bg-white/80 dark:bg-[#1E2530] p-2 rounded-lg border border-red-500/20">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 block">Length</span>
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400">{culprit.packet_length}B</span>
-                        </div>
-                        <div className="bg-white/80 dark:bg-[#1E2530] p-2 rounded-lg border border-red-500/20 col-span-2 sm:col-span-4 md:col-span-1">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 block">Trigger Cause</span>
-                          <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 truncate block" title={culprit.anomaly_reason}>
-                            {culprit.anomaly_reason || 'Outlier distribution'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Top Feature Contributions */}
-                      {a.top_features && Object.keys(a.top_features).length > 0 && (
-                        <div className="flex flex-wrap items-center gap-2 mt-2 pt-1">
-                          <span className="text-[10px] text-gray-500 dark:text-gray-400 font-bold uppercase">Deviations:</span>
-                          {Object.entries(a.top_features).map(([feat, val]) => (
-                            <span
-                              key={feat}
-                              className="text-[10px] font-mono px-2 py-0.5 rounded bg-red-500/10 text-red-600 dark:text-red-300 border border-red-500/20"
-                            >
-                              <code>{feat}</code>: <b>{val}</b>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Raw JSON expander */}
-                      {isExpanded && (
-                        <pre className="mt-3 p-3 rounded-lg bg-gray-950 text-gray-300 text-[11px] font-mono overflow-x-auto max-h-48 border border-gray-800">
-                          {JSON.stringify(culprit, null, 2)}
-                        </pre>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="mt-2.5 p-2 rounded-lg bg-gray-100 dark:bg-[#1E2530] text-[11px] font-mono text-gray-700 dark:text-gray-300">
+            <span className="font-bold text-gray-500 mr-2">Analysis:</span>
+            {selectedPacket.details || 'Standard wire frame verified.'}
           </div>
         </div>
       )}
@@ -329,10 +292,13 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
         <div className="flex flex-wrap items-center justify-between pb-3 mb-2 border-b border-gray-800 gap-2">
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-gray-300 uppercase tracking-wider font-bold">
-              Multi-Protocol Live Wire Stream
+              Multi-Protocol Live Wire Feed
             </span>
             <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-400">
               {wireEvents.length} frames ingested
+            </span>
+            <span className="text-[10px] text-gray-500 ml-2 hidden sm:inline">
+              (Click any packet row to inspect full metadata)
             </span>
           </div>
 
@@ -368,59 +334,76 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
             >
               IKE ({ikeEvents.length})
             </button>
+            <button
+              onClick={() => setWireFilter('anomaly')}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
+                wireFilter === 'anomaly'
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              Anomalies ({wireEvents.filter(p => p.severity === 'CRITICAL' || p.severity === 'WARNING' || p.is_replay).length})
+            </button>
           </div>
         </div>
 
-        {/* Wire Packets Table */}
-        <div className="font-mono text-xs space-y-1.5 max-h-56 overflow-y-auto pr-1">
+        {/* Color-Coded Wire Packets Table (Red=Critical, Orange=Warning, Green=Correct) */}
+        <div className="font-mono text-xs space-y-1.5 max-h-60 overflow-y-auto pr-1">
           {filteredWire.length === 0 ? (
             <div className="text-gray-500 italic py-6 text-center">
               No wire traffic captured. Click &quot;Simulate Stream&quot;, &quot;Live Sniff&quot;, or &quot;Inject Hardened/Attack&quot; to begin.
             </div>
           ) : (
             filteredWire
-              .slice(-25)
+              .slice(-40)
               .reverse()
               .map((pkt, idx) => {
-                const isIke = pkt.protocol === 'IKE' || pkt.packet_type?.includes('IKE');
-                const isSweet32 = pkt.is_sweet32 || pkt.packet_type?.includes('3DES');
-                const isReplay = pkt.is_replay;
+                const isCrit = pkt.severity === 'CRITICAL' || pkt.is_replay;
+                const isWarn = pkt.severity === 'WARNING';
+                const isLow = !isCrit && !isWarn;
+                const isSelected = selectedPacket?.frame_number === pkt.frame_number;
 
                 return (
                   <div
                     key={idx}
-                    className={`flex items-center justify-between py-1 px-2.5 rounded transition ${
-                      isReplay
-                        ? 'bg-red-500/20 border border-red-500/40 text-red-300'
-                        : isSweet32
-                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-200'
-                        : isIke
-                        ? 'bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20'
-                        : 'bg-gray-900 hover:bg-gray-800/80 border border-gray-800/60'
+                    onClick={() => setSelectedPacket(pkt)}
+                    className={`flex items-center justify-between py-1.5 px-3 rounded-lg transition cursor-pointer ${
+                      isSelected
+                        ? 'ring-2 ring-blue-500'
+                        : ''
+                    } ${
+                      isCrit
+                        ? 'bg-red-500/15 border border-red-500/40 text-red-300 hover:bg-red-500/25'
+                        : isWarn
+                        ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
+                        : 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
                     }`}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-gray-500 text-[11px] font-bold w-10 shrink-0">
+                      <span className="text-gray-400 text-[11px] font-bold w-10 shrink-0">
                         #{pkt.frame_number || idx + 1}
                       </span>
 
-                      {/* Type Badge */}
+                      {/* Status / Severity Tag */}
                       <span
-                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded shrink-0 ${
-                          isReplay
+                        className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                          isCrit
                             ? 'bg-red-500 text-white'
-                            : isSweet32
-                            ? 'bg-amber-500/30 text-amber-300'
-                            : isIke
-                            ? 'bg-purple-500/30 text-purple-300'
-                            : 'bg-emerald-500/20 text-emerald-400'
+                            : isWarn
+                            ? 'bg-amber-500 text-gray-900 font-extrabold'
+                            : 'bg-emerald-500/30 text-emerald-300'
                         }`}
                       >
-                        {pkt.packet_type || (isIke ? 'IKEv2' : 'ESP')}
+                        {isCrit ? 'CRITICAL' : isWarn ? 'WARNING' : 'SECURE'}
+                      </span>
+
+                      {/* Type Badge */}
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-300 shrink-0">
+                        {pkt.packet_type || 'ESP'}
                       </span>
 
                       {/* Source -> Destination */}
-                      <span className="text-gray-300 font-medium truncate">
+                      <span className="text-gray-200 font-medium truncate">
                         {pkt.src_ip}
                         {pkt.src_port ? `:${pkt.src_port}` : ''} &rarr; {pkt.dst_ip}
                         {pkt.dst_port ? `:${pkt.dst_port}` : ''}
@@ -437,17 +420,18 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
                       {pkt.seq_num !== null && pkt.seq_num !== undefined && (
                         <span
                           className={`text-[11px] shrink-0 font-bold ${
-                            isReplay ? 'text-red-400 underline animate-pulse' : 'text-gray-400'
+                            pkt.is_replay ? 'text-red-400 underline animate-pulse' : 'text-gray-400'
                           }`}
                         >
                           Seq:{pkt.seq_num}
-                          {isReplay && ' [REPLAY]'}
+                          {pkt.is_replay && ' [REPLAY]'}
                         </span>
                       )}
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
                       <span className="text-amber-400 font-semibold">{pkt.packet_length}B</span>
+                      <span className="text-[10px] text-gray-500 hover:text-gray-300">&rarr;</span>
                     </div>
                   </div>
                 );
