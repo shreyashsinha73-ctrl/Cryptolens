@@ -27,6 +27,7 @@ from backend.streaming.injector import (
 )
 from backend.capture.pcap_utils import find_pcap_for_job, get_tshark_binary
 from backend.engine.data_plane.classifier import classify_traffic
+from backend.engine.data_plane.traffic_analyzer import classify_non_esp_packet
 from backend.engine.anomaly.detector import AnomalyDetector
 from backend.scoring.scoring_engine import ScoringEngine
 from backend.scoring.compliance_engine import ComplianceEngine
@@ -60,10 +61,15 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
         "-e", "ip.dst",
         "-e", "udp.srcport",
         "-e", "udp.dstport",
+        "-e", "tcp.srcport",
+        "-e", "tcp.dstport",
         "-e", "esp.spi",
         "-e", "esp.sequence",
         "-e", "frame.len",
         "-e", "frame.time_epoch",
+        "-e", "icmp.type",
+        "-e", "_ws.col.Info",
+        "-e", "ip.proto",
         "-c", str(max_packets),
     ]
 
@@ -91,14 +97,29 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
         parts = line.split("\t")
         frame_num = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else (len(records) + 1)
         proto = parts[1] if len(parts) > 1 and parts[1] else "Unknown"
-        src_ip = parts[2] if len(parts) > 2 and parts[2] else "10.10.0.1"
-        dst_ip = parts[3] if len(parts) > 3 and parts[3] else "10.10.0.2"
-        src_port = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else None
-        dst_port = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else None
-        spi = parts[6] if len(parts) > 6 and parts[6] else None
-        seq_num = int(parts[7]) if len(parts) > 7 and parts[7].isdigit() else None
-        pkt_len = int(parts[8]) if len(parts) > 8 and parts[8].isdigit() else 0
-        ts = float(parts[9]) if len(parts) > 9 and parts[9] else time.time()
+        src_ip = parts[2] if len(parts) > 2 and parts[2] else ""
+        dst_ip = parts[3] if len(parts) > 3 and parts[3] else ""
+        udp_sport = parts[4] if len(parts) > 4 else ""
+        udp_dport = parts[5] if len(parts) > 5 else ""
+        tcp_sport = parts[6] if len(parts) > 6 else ""
+        tcp_dport = parts[7] if len(parts) > 7 else ""
+        spi = parts[8] if len(parts) > 8 and parts[8] else None
+        seq_num = int(parts[9]) if len(parts) > 9 and parts[9].isdigit() else None
+        pkt_len = int(parts[10]) if len(parts) > 10 and parts[10].isdigit() else 0
+        ts = float(parts[11]) if len(parts) > 11 and parts[11] else time.time()
+        icmp_type = parts[12] if len(parts) > 12 else ""
+        info_col = parts[13] if len(parts) > 13 else ""
+        ip_proto = parts[14] if len(parts) > 14 else ""
+
+        # Skip malformed trailing frames
+        if pkt_len <= 0:
+            continue
+
+        # Extract port numbers for display
+        sport_str = udp_sport or tcp_sport
+        dport_str = udp_dport or tcp_dport
+        src_port = int(sport_str) if sport_str.isdigit() else None
+        dst_port = int(dport_str) if dport_str.isdigit() else None
 
         # Check for replay duplicate
         is_replay = False
@@ -109,16 +130,19 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
             else:
                 seen_seq_map[key] = frame_num
 
-        # Classify high-fidelity packet type
-        if "IKE" in proto.upper() or src_port in (500, 4500) or dst_port in (500, 4500):
-            if src_port == 500 or dst_port == 500:
+        # 1. IKE Control-Plane Traffic
+        if "IKE" in proto.upper() or udp_sport in ("500", "4500") or udp_dport in ("500", "4500"):
+            if udp_sport == "500" or udp_dport == "500":
                 pkt_type = "IKEv2 (SA_INIT)" if not has_3des else "IKEv1 (Main Mode)"
-            elif src_port == 4500 or dst_port == 4500:
+            elif udp_sport == "4500" or udp_dport == "4500":
                 pkt_type = "IKEv2 (AUTH)" if not has_3des else "IKEv1 (Quick Mode)"
             else:
                 pkt_type = f"IKE ({proto})"
             protocol_cat = "IKE"
-            details = f"{pkt_type}: UDP {src_port}->{dst_port}, Len={pkt_len}B"
+            event_type = "ike_event"
+            details = f"{pkt_type}: UDP {src_port or 500}->{dst_port or 500}, Len={pkt_len}B"
+            if info_col:
+                details += f" — {info_col}"
             if has_3des:
                 severity = "CRITICAL"
                 details += " [DEPRECATED 3DES / SWEET32 RISK]"
@@ -131,9 +155,11 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
             else:
                 severity = "LOW"
 
-        elif "ESP" in proto.upper() or spi:
+        # 2. ESP Encrypted Data-Plane Traffic
+        elif "ESP" in proto.upper() or spi or ip_proto == "50":
             pkt_type = "ESP (Transport 3DES)" if has_3des else ("ESP (AES-CBC)" if has_cbc else "ESP (AES-256-GCM)")
             protocol_cat = "ESP"
+            event_type = "esp_event"
             details = f"ESP Frame: SPI={spi or '—'}, Seq={seq_num or '—'}, Len={pkt_len}B"
             if is_replay:
                 severity = "CRITICAL"
@@ -149,19 +175,49 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
                 details += " [CBC MODE (POTENTIAL PADDING ORACLE)]"
             else:
                 severity = "LOW"
+
+        # 3. Dynamic Genuine Non-ESP/IKE Protocols (ICMP, VoIP, DNS, Web, SSH, etc.)
         else:
-            pkt_type = proto
-            protocol_cat = proto
-            details = f"Inner Tunnel Flow ({proto}): {src_ip}->{dst_ip}, Len={pkt_len}B"
+            pkt_type = classify_non_esp_packet(
+                proto_col=proto,
+                ip_proto=ip_proto,
+                udp_sport=udp_sport,
+                udp_dport=udp_dport,
+                tcp_sport=tcp_sport,
+                tcp_dport=tcp_dport,
+                icmp_type=icmp_type,
+                info_col=info_col,
+            )
+            if "ICMP" in pkt_type:
+                protocol_cat = "ICMP"
+                event_type = "icmp_event"
+            elif "VoIP" in pkt_type or "RTP" in pkt_type:
+                protocol_cat = "VoIP"
+                event_type = "voip_event"
+            elif "DNS" in pkt_type:
+                protocol_cat = "DNS"
+                event_type = "dns_event"
+            elif "Web" in pkt_type or "TLS" in pkt_type or "HTTP" in pkt_type:
+                protocol_cat = "HTTPS" if ("HTTPS" in pkt_type or "TLS" in pkt_type) else "HTTP"
+                event_type = "web_event"
+            else:
+                protocol_cat = proto
+                event_type = "inner_event"
+
+            if info_col:
+                details = f"{pkt_type}: {info_col} ({src_ip} -> {dst_ip}, {pkt_len}B)"
+            else:
+                port_str = f":{src_port}->:{dst_port}" if (src_port or dst_port) else ""
+                details = f"{pkt_type}: {src_ip}{port_str} -> {dst_ip}, Len={pkt_len}B"
             severity = "LOW"
 
         records.append({
-            "type": "esp_event" if protocol_cat == "ESP" else ("ike_event" if protocol_cat == "IKE" else "inner_event"),
+            "type": event_type,
             "frame_number": frame_num,
             "packet_type": pkt_type,
             "protocol": protocol_cat,
-            "src_ip": src_ip,
-            "dst_ip": dst_ip,
+            "src_ip": src_ip or "0.0.0.0",
+            "dst_ip": dst_ip or "0.0.0.0",
             "src_port": src_port,
             "dst_port": dst_port,
             "packet_length": pkt_len,
@@ -629,7 +685,7 @@ async def _run_simulation(job_id: str):
                     "type": "rolling_score",
                     "timestamp": now,
                     "esp_count": len([p for p in recent_pkts if p.get("protocol") == "ESP"]),
-                    "ike_count": len([p for p in recent_pkts if p.get("protocol") == "IKE"]) or 2,
+                    "ike_count": len([p for p in recent_pkts if p.get("protocol") == "IKE"]),
                     "ai_mode": classification.get("mode", "transport" if is_insecure else "tunnel"),
                     "ai_traffic": classification.get("traffic_type", "https"),
                     "confidence": classification.get("mode_confidence", 0.95),
