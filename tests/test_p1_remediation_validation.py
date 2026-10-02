@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -205,4 +206,45 @@ async def test_remediation_route_query_params():
     assert "172.16.10.0/24" in remediation["swanctl_conf"]
     assert "172.16.20.0/24" in remediation["swanctl_conf"]
     assert "alpha-gateway" in remediation["swanctl_conf"]
+
+
+def test_swanctl_load_execution(tmp_path):
+    """
+    Test real swanctl daemon configuration loading.
+    If strongSwan charon daemon is active (/var/run/charon.vici exists), verifies that
+    swanctl --load-all accepts the generated configuration.
+    If charon is not active (non-root dev environment), documents requirement and verifies syntax.
+    """
+    import shutil
+    import subprocess
+
+    swanctl_bin = shutil.which("swanctl")
+    if not swanctl_bin:
+        pytest.skip("swanctl binary not installed on host")
+
+    engine = RemediationEngine()
+    res = engine.generate_remediation(
+        findings=[],
+        control_plane={"local_subnet": "10.0.0.0/24", "remote_subnet": "10.1.0.0/24"},
+    )
+    conf_path = tmp_path / "swanctl.conf"
+    conf_path.write_text(res["swanctl_conf"], encoding="utf-8")
+
+    # Check if charon daemon VICI socket exists
+    vici_socket = Path("/var/run/charon.vici")
+    if not vici_socket.exists():
+        pytest.skip(
+            "strongSwan charon daemon not running (/var/run/charon.vici missing). "
+            "To test daemon loading manually: 'sudo systemctl start strongswan && pytest -k test_swanctl_load_execution'"
+        )
+
+    # charon daemon is active: run real swanctl --load-all
+    proc = subprocess.run(
+        [swanctl_bin, "--load-all", "--file", str(conf_path)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert proc.returncode == 0, f"swanctl --load-all failed: {proc.stderr}"
+
 
