@@ -154,8 +154,8 @@ def extract_packet_stream(pcap_path: Path | str, max_packets: int = 250) -> List
                 severity = "CRITICAL"
                 details += " [REPLAY ATTACK: DUPLICATE SEQUENCE]"
             elif has_3des:
-                severity = "CRITICAL" if (pkt_len % 8 == 0 and pkt_len < 300) else "MEDIUM"
-                details += " [SWEET32 64-BIT ALIGNMENT]"
+                severity = "HIGH"
+                details += " [DEPRECATED 64-BIT CIPHER: 3DES SWEET32 RISK]"
             elif has_weak_hash:
                 severity = "MEDIUM"
                 details += " [WEAK INTEGRITY / NON-PFS FLOW]"
@@ -257,11 +257,11 @@ def _analyze_window_for_anomalies(
             severity = "CRITICAL" if label in ("replay_attack", "sweet32_block_surface") else "MEDIUM"
             reason = f"PyOD Isolation Forest anomaly score: {res.get('anomaly_score', 0):.3f}"
 
-            if label == "sweet32_block_surface" or any(p.get("is_sweet32") for p in recent_packets):
-                culprit = next((p for p in reversed(recent_packets) if p.get("is_sweet32") or (p.get("protocol") == "ESP" and p.get("packet_length", 0) % 8 == 0)), current_pkt)
+            if label in ("sweet32_block_surface", "sweet32_birthday_bound") or any(p.get("is_sweet32") for p in recent_packets):
+                culprit = next((p for p in reversed(recent_packets) if p.get("is_sweet32")), current_pkt)
                 culprit["severity"] = "CRITICAL"
                 severity = "CRITICAL"
-                reason = f"64-bit aligned block size ({culprit.get('packet_length')}B) on SPI {culprit.get('spi')} matching deprecated 3DES-CBC cipher"
+                reason = f"Deprecated 64-bit cipher (3DES) detected on SPI {culprit.get('spi')}; cumulative volume monitored against 32 GiB birthday bound"
             elif label == "data_exfiltration":
                 culprit = max(recent_packets, key=lambda p: p.get("packet_length", 0))
                 culprit["severity"] = "MEDIUM"

@@ -21,15 +21,18 @@ def localize_threats(
     esp_records: list[ESPPacketRecord],
     findings: list[dict],
     xai_method: str = "grad_cam",
+    target_head: str = "mode",
 ) -> dict:
     """
     Combine XAI saliency with packet metadata to produce
     per-packet threat attribution.
+    Grad-CAM explains CNN classification (mode/traffic), NOT crypto findings.
     """
     if len(esp_records) < 5:
         return {
             "threat_packets": [],
             "xai_heatmap": [],
+            "relative_saliency": [],
             "channel_importance": {},
             "summary": "Insufficient ESP packets for XAI analysis (minimum 5 required).",
         }
@@ -47,16 +50,22 @@ def localize_threats(
     _, input_tensor = preprocess_features(lengths, iats, target_len=seq_len)
 
     if xai_method == "integrated_gradients":
-        xai_result = integrated_gradients_1d(input_tensor, target_head="mode")
+        xai_result = integrated_gradients_1d(input_tensor, target_head=target_head)
         heatmap = np.abs(np.array(xai_result["attributions"])).sum(axis=0).tolist()
         channel_imp = {
             "packet_lengths": xai_result["channel_importance"][0],
             "inter_arrival_times": xai_result["channel_importance"][1],
         }
     else:
-        xai_result = grad_cam_1d(input_tensor, target_head="mode")
+        xai_result = grad_cam_1d(input_tensor, target_head=target_head)
         heatmap = xai_result["heatmap"]
         channel_imp = {"packet_lengths": 0.0, "inter_arrival_times": 0.0}
+
+    # P1-5: Track bytes carried per SPI for 2^32 64-bit block birthday bound (~32 GiB)
+    spi_volumes = {}
+    for r in esp_records:
+        spi_key = r.spi or "unknown"
+        spi_volumes[spi_key] = spi_volumes.get(spi_key, 0) + r.packet_length
 
     threat_packets = []
     ranked_indices = np.argsort(heatmap)[::-1]
@@ -68,7 +77,10 @@ def localize_threats(
         saliency = heatmap[idx] if idx < len(heatmap) else 0.0
 
         threat_type, threat_desc = _classify_packet_threat(
-            record, findings, saliency
+            record,
+            findings,
+            saliency,
+            spi_volume_bytes=spi_volumes.get(record.spi or "unknown", 0),
         )
 
         if saliency < 0.1 and threat_type == "normal":
@@ -82,24 +94,34 @@ def localize_threats(
             "packet_length": record.packet_length,
             "spi": record.spi or "unknown",
             "seq_num": record.seq_num if record.seq_num is not None else -1,
-            "saliency_score": round(float(saliency), 4),
+            "relative_saliency": round(float(saliency), 4),
+            "saliency_score": round(float(saliency), 4),  # backwards compatibility
             "attribution_rank": rank + 1,
             "threat_type": threat_type,
             "threat_description": threat_desc,
         })
 
-    high_saliency = [p for p in threat_packets if p["saliency_score"] > 0.5]
+    high_saliency = [p for p in threat_packets if p["relative_saliency"] > 0.5]
     summary = (
         f"XAI analysis identified {len(high_saliency)} high-influence packets "
         f"out of {len(esp_records)} total ESP packets. "
-        f"Predicted class: {xai_result.get('predicted_class', 'unknown')}."
+        f"Predicted class: {xai_result.get('predicted_class', 'unknown')} "
+        f"(confidence: {xai_result.get('predicted_confidence', 0.0):.1%})."
     )
 
     return {
         "threat_packets": threat_packets[:20],
         "xai_heatmap": heatmap,
+        "relative_saliency": heatmap,
+        "raw_max_attribution": xai_result.get("raw_max_attribution", 1.0),
+        "predicted_class": xai_result.get("predicted_class", "unknown"),
+        "predicted_confidence": xai_result.get("predicted_confidence", 0.0),
         "channel_importance": channel_imp,
         "summary": summary,
+        "xai_semantics": (
+            "Grad-CAM explains 1D-CNN traffic/mode classification decisions, "
+            "not cryptographic weaknesses. Saliency values represent relative attribution."
+        ),
     }
 
 
@@ -107,16 +129,23 @@ def _classify_packet_threat(
     record: ESPPacketRecord,
     findings: list[dict],
     saliency: float,
+    spi_volume_bytes: int = 0,
 ) -> tuple[str, str]:
-    """Classify a packet's threat type based on metadata and findings."""
-    if record.packet_length > 0 and record.packet_length % 8 == 0:
-        for f in findings:
-            if "3DES" in f.get("title", "") or "Sweet32" in f.get("description", ""):
-                return (
-                    "sweet32_block_size",
-                    f"Packet length {record.packet_length}B aligned to 64-bit "
-                    f"block boundary — 3DES Sweet32 vulnerability surface."
-                )
+    """Classify a packet's threat type based on metadata, SPI volume, and findings."""
+    # P1-5: Check 64-bit ciphers against the 2^32 block (~32 GiB) birthday bound
+    is_64bit_cipher = any(
+        "3DES" in str(f.get("title", "")).upper()
+        or "SWEET32" in str(f.get("description", "")).upper()
+        or "3DES" in str(f.get("observed_value", "")).upper()
+        for f in findings
+    )
+    if is_64bit_cipher and spi_volume_bytes > 0:
+        total_mb = spi_volume_bytes / (1024 * 1024)
+        spi_label = record.spi or "unknown"
+        return (
+            "sweet32_birthday_bound",
+            f"SPI {spi_label} carried {total_mb:.2f} MB / 32 GiB (birthday collision bound for 64-bit ciphers).",
+        )
 
     if record.packet_length < 100:
         for f in findings:
@@ -124,14 +153,14 @@ def _classify_packet_threat(
                 return (
                     "transport_metadata_exposure",
                     f"Small packet ({record.packet_length}B) in Transport mode "
-                    f"may expose inner protocol headers."
+                    f"may expose inner protocol headers.",
                 )
 
     if saliency > 0.5:
         return (
-            "high_influence",
-            f"High CNN attention (saliency={saliency:.3f}) — this packet's "
-            f"metadata significantly influenced the classification decision."
+            "high_cnn_influence",
+            f"High CNN attribution (relative saliency={saliency:.3f}) — packet "
+            f"significantly influenced classification decision.",
         )
 
     return ("normal", "No specific threat attributed to this packet.")

@@ -128,7 +128,11 @@ def _extract_esp_records_from_pcap(pcap_path: Path, max_records: int = 60) -> Li
 
 
 @router.get("/api/v1/xai/{job_id}")
-async def get_threat_localization(job_id: str, method: str = "grad_cam"):
+async def get_threat_localization(
+    job_id: str,
+    method: str = "grad_cam",
+    target_head: str = "mode",
+):
     """
     Run Explainable AI (XAI) analysis on a completed job's genuine packet data.
     Extracts authentic wire frames directly from the analyzed PCAP and computes
@@ -186,6 +190,7 @@ async def get_threat_localization(job_id: str, method: str = "grad_cam"):
         esp_records=records,
         findings=findings,
         xai_method=method,
+        target_head=target_head,
     )
 
     # 4. Check for replay attack duplicate sequence numbers off main loop
