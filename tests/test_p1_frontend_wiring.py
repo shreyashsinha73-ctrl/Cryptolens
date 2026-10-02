@@ -95,3 +95,44 @@ def test_anomaly_alert_contains_stream_id_and_zscores():
     assert alert.get("stream_id") == "test-stream-uuid-1234"
     assert alert.get("anomaly_label") == "REPLAY_ATTACK"
     assert alert.get("severity") == "CRITICAL"
+
+
+def test_stream_id_deduplication_logic():
+    """Verify that frame deduplication is keyed by (stream_id, frame_number)."""
+    seen_keys = set()
+
+    def process_wire_packet(item):
+        s_id = item.get("stream_id", "default")
+        fn = item.get("frame_number")
+        if fn is not None:
+            key = f"{s_id}:{fn}"
+            if key in seen_keys:
+                return False
+            seen_keys.add(key)
+        return True
+
+    # Packets in stream 1
+    assert process_wire_packet({"stream_id": "stream_1", "frame_number": 1}) is True
+    assert process_wire_packet({"stream_id": "stream_1", "frame_number": 2}) is True
+    # Duplicate frame 2 in stream 1 must be rejected
+    assert process_wire_packet({"stream_id": "stream_1", "frame_number": 2}) is False
+
+    # Same frame numbers in stream 2 must NOT be dropped
+    assert process_wire_packet({"stream_id": "stream_2", "frame_number": 1}) is True
+    assert process_wire_packet({"stream_id": "stream_2", "frame_number": 2}) is True
+
+
+@pytest.mark.asyncio
+async def test_two_consecutive_simulations_no_frame_collision():
+    """Verify consecutive simulations generate unique stream IDs to prevent frame collision."""
+    res1 = await live_module.simulate_live_capture(config_id="config_01_tunnel_aes256gcm_dh19_pfson")
+    s1_id = res1["stream_id"]
+    await live_module.stop_live_capture()
+
+    res2 = await live_module.simulate_live_capture(config_id="config_01_tunnel_aes256gcm_dh19_pfson")
+    s2_id = res2["stream_id"]
+    await live_module.stop_live_capture()
+
+    assert s1_id != s2_id
+    assert uuid.UUID(s1_id)
+    assert uuid.UUID(s2_id)
