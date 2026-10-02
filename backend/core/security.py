@@ -31,11 +31,13 @@ def get_active_token() -> str:
     return _AUTH_TOKEN
 
 
-def verify_api_auth(request: Request) -> bool:
+def verify_api_auth(request: Optional[Request] = None) -> bool:
     """
     Verify bearer token, X-API-Token header, or ?token= query parameter on mutating endpoints.
-    Can be bypassed if DISABLE_API_AUTH=true is explicitly set in environment.
+    Can be bypassed if DISABLE_API_AUTH=true is explicitly set in environment, or if request is None.
     """
+    if request is None:
+        return True
     if os.getenv("DISABLE_API_AUTH", "false").lower() in ("true", "1", "yes"):
         return True
 

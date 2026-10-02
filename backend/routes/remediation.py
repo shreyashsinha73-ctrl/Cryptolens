@@ -15,7 +15,7 @@ _store = ResultStore()
 @router.post("/api/v1/remediate/{job_id}")
 async def generate_remediation(
     job_id: str,
-    request: Request,
+    request: Request = None,
     local_subnet: Optional[str] = None,
     remote_subnet: Optional[str] = None,
     local_id: Optional[str] = None,

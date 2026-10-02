@@ -435,7 +435,7 @@ async def _stop_all_active_internal() -> bool:
 
 
 @router.post("/api/v1/live/start")
-async def start_live_capture(request: Request, interface: str = Query(default="any")):
+async def start_live_capture(request: Request = None, interface: str = "any"):
     """
     Start the real-time packet sniffer on a network interface.
     Uses bounded thread-safe queue and batched flusher for non-blocking cross-thread telemetry.
@@ -542,7 +542,7 @@ async def start_live_capture(request: Request, interface: str = Query(default="a
 
 
 @router.post("/api/v1/live/stop")
-async def stop_live_capture(request: Request):
+async def stop_live_capture(request: Request = None):
     """Stop the real-time packet sniffer, simulation, or active injection."""
     verify_api_auth(request)
     global _current_stream_id
@@ -568,7 +568,7 @@ async def get_live_status():
 
 
 @router.post("/api/v1/live/inject/{profile}")
-async def inject_traffic(profile: str, request: Request):
+async def inject_traffic(profile: str, request: Request = None):
     """
     Inject authentic IPsec traffic profiles into the live pipeline:
       - 'hardened': AES-256-GCM, DH 19, PFS ON, monotonic sequence numbers.
@@ -675,8 +675,8 @@ async def _run_injection_task(profile: str, stream_id: Optional[str] = None):
 
 @router.post("/api/v1/live/simulate")
 async def simulate_live_capture(
-    job_id: Optional[str] = Query(default=None),
-    config_id: Optional[str] = Query(default=None),
+    job_id: Optional[str] = None,
+    config_id: Optional[str] = None,
 ):
     """
     Simulate live streaming traffic for the uploaded PCAP file.
@@ -685,9 +685,12 @@ async def simulate_live_capture(
     """
     global _simulation_task, _current_stream_id
 
-    if job_id and isinstance(job_id, str):
+    job_id = job_id if isinstance(job_id, str) and job_id else None
+    config_id = config_id if isinstance(config_id, str) and config_id else None
+
+    if job_id:
         job_id = validate_job_id(job_id)
-    if config_id and isinstance(config_id, str):
+    if config_id:
         config_id = validate_job_id(config_id)
 
     async with _lifecycle_lock:

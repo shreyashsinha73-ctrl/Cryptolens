@@ -12,7 +12,8 @@ async def test_rapid_start_stop_start_lifecycle():
     Verify that calling start -> stop -> start rapidly within 2s
     is idempotent, cancels old tasks, and never yields multiple inference loops.
     """
-    with patch("backend.routes.live.LiveSniffer") as MockSnifferClass:
+    with patch("backend.routes.live.LiveSniffer") as MockSnifferClass, \
+         patch("socket.socket"):
         mock_sniffer = MagicMock()
         MockSnifferClass.return_value = mock_sniffer
 
