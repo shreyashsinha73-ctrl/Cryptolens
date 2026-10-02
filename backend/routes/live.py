@@ -533,16 +533,9 @@ async def simulate_live_capture(
     Simulate live streaming traffic for the uploaded PCAP file.
     Streams each genuine packet sequentially and stops automatically when the PCAP finishes.
     """
-    global _simulation_task, _sniffer, _injection_task
-    if _sniffer is not None:
-        _sniffer.stop()
-        _sniffer = None
-    if _injection_task and not _injection_task.done():
-        _injection_task.cancel()
-        _injection_task = None
+    global _simulation_task
     if _simulation_task and not _simulation_task.done():
         _simulation_task.cancel()
-        _simulation_task = None
 
     target_id = job_id or config_id or "config_01_tunnel_aes256gcm_dh19_pfson"
     _simulation_task = asyncio.create_task(_run_simulation(target_id))

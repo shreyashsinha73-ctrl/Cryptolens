@@ -121,9 +121,8 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
           </div>
         </div>
 
-        {/* Action Controls - NO DROPDOWN MENU */}
+        {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Simulate Stream appears ONLY when a PCAP is uploaded/ingested (jobId is present) */}
           {(jobId || isRealData) && (
             <button
               onClick={handleSimulate}
@@ -139,7 +138,6 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
             </button>
           )}
 
-          {/* Live Sniff (Always available) */}
           <button
             onClick={() => startCapture('any')}
             disabled={isStreaming}

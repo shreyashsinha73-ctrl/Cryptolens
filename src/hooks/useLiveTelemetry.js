@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 function getWsUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -6,140 +6,164 @@ function getWsUrl() {
   return `${protocol}//${host}:8000/ws/live-telemetry`;
 }
 
-export function useLiveTelemetry() {
-  const [isConnected, setIsConnected] = useState(false);
-  const [wireEvents, setWireEvents] = useState([]);
-  const [espEvents, setEspEvents] = useState([]);
-  const [ikeEvents, setIkeEvents] = useState([]);
-  const [rollingScore, setRollingScore] = useState(null);
-  const [anomalyAlerts, setAnomalyAlerts] = useState([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamCompleted, setStreamCompleted] = useState(false);
-  const [completionMessage, setCompletionMessage] = useState(null);
+// Module-level singleton state to prevent duplicate WebSocket connections
+let sharedWs = null;
+let subscribers = new Set();
+let reconnectTimeout = null;
 
-  const wsRef = useRef(null);
-  const reconnectTimer = useRef(null);
-  const seenFramesRef = useRef(new Set());
+let state = {
+  isConnected: false,
+  isStreaming: false,
+  streamCompleted: false,
+  completionMessage: null,
+  wireEvents: [],
+  espEvents: [],
+  ikeEvents: [],
+  rollingScore: null,
+  anomalyAlerts: [],
+};
 
-  const clearWire = useCallback(() => {
-    seenFramesRef.current.clear();
-    setWireEvents([]);
-    setEspEvents([]);
-    setIkeEvents([]);
-    setAnomalyAlerts([]);
-    setRollingScore(null);
-    setStreamCompleted(false);
-    setCompletionMessage(null);
-  }, []);
+function notifySubscribers() {
+  subscribers.forEach((callback) => callback({ ...state }));
+}
 
-  const connect = useCallback(() => {
-    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
-      return;
-    }
+function initWebSocket() {
+  if (sharedWs && (sharedWs.readyState === WebSocket.OPEN || sharedWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
 
-    try {
-      const ws = new WebSocket(getWsUrl());
+  try {
+    sharedWs = new WebSocket(getWsUrl());
 
-      ws.onopen = () => {
-        setIsConnected(true);
-      };
+    sharedWs.onopen = () => {
+      state.isConnected = true;
+      notifySubscribers();
+    };
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          switch (data.type) {
-            case 'connection_ack':
-              break;
+    sharedWs.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        switch (data.type) {
+          case 'connection_ack':
+            break;
 
-            case 'esp_event':
-            case 'ike_event':
-            case 'icmp_event':
-            case 'voip_event':
-            case 'dns_event':
-            case 'web_event':
-            case 'wire_packet':
-            case 'inner_event': {
-              const fNum = data.frame_number;
-              const fKey = fNum !== undefined && fNum !== null ? `${data.type}_${fNum}` : `${data.type}_${data.timestamp}_${data.spi}_${data.seq_num}`;
-              
-              if (seenFramesRef.current.has(fKey)) {
-                return;
-              }
-              seenFramesRef.current.add(fKey);
-
-              setIsStreaming(true);
-              setStreamCompleted(false);
-
-              if (data.type === 'esp_event' || data.protocol === 'ESP') {
-                setEspEvents((prev) => [...prev, data]);
-              } else if (data.type === 'ike_event' || data.protocol === 'IKE') {
-                setIkeEvents((prev) => [...prev, data]);
-              }
-
-              setWireEvents((prev) => [...prev, data]);
-              break;
+          case 'esp_event':
+          case 'ike_event':
+          case 'icmp_event':
+          case 'voip_event':
+          case 'dns_event':
+          case 'web_event':
+          case 'wire_packet':
+          case 'inner_event': {
+            // Deduplicate if identical frame number was just appended
+            const lastWire = state.wireEvents[state.wireEvents.length - 1];
+            if (lastWire && data.frame_number !== undefined && lastWire.frame_number === data.frame_number) {
+              return;
             }
 
-            case 'rolling_score':
-              setRollingScore(data);
-              break;
+            state.isStreaming = true;
+            state.streamCompleted = false;
 
-            case 'anomaly_alert':
-              setAnomalyAlerts((prev) => [...prev.slice(-99), data]);
-              break;
+            if (data.type === 'esp_event' || data.protocol === 'ESP') {
+              state.espEvents = [...state.espEvents, data];
+            } else if (data.type === 'ike_event' || data.protocol === 'IKE') {
+              state.ikeEvents = [...state.ikeEvents, data];
+            }
 
-            case 'stream_completed':
-              setIsStreaming(false);
-              setStreamCompleted(true);
-              setCompletionMessage(data.message || 'Simulation completed: all packets streamed.');
-              break;
-
-            case 'stream_stopped':
-              setIsStreaming(false);
-              break;
-
-            default:
-              break;
+            state.wireEvents = [...state.wireEvents, data];
+            notifySubscribers();
+            break;
           }
-        } catch (err) {
-          console.error('[LiveTelemetry] Parse error:', err);
+
+          case 'rolling_score':
+            state.rollingScore = data;
+            notifySubscribers();
+            break;
+
+          case 'anomaly_alert':
+            state.anomalyAlerts = [...state.anomalyAlerts.slice(-99), data];
+            notifySubscribers();
+            break;
+
+          case 'stream_completed':
+            state.isStreaming = false;
+            state.streamCompleted = true;
+            state.completionMessage = data.message || 'Simulation completed: all packets streamed.';
+            notifySubscribers();
+            break;
+
+          case 'stream_stopped':
+            state.isStreaming = false;
+            notifySubscribers();
+            break;
+
+          default:
+            break;
         }
-      };
+      } catch (err) {
+        console.error('[LiveTelemetry] Parse error:', err);
+      }
+    };
 
-      ws.onclose = () => {
-        setIsConnected(false);
-        setIsStreaming(false);
-        wsRef.current = null;
-        reconnectTimer.current = setTimeout(connect, 3000);
-      };
+    sharedWs.onclose = () => {
+      state.isConnected = false;
+      state.isStreaming = false;
+      sharedWs = null;
+      notifySubscribers();
+      if (!reconnectTimeout) {
+        reconnectTimeout = setTimeout(() => {
+          reconnectTimeout = null;
+          initWebSocket();
+        }, 3000);
+      }
+    };
 
-      ws.onerror = () => {
-        if (wsRef.current) wsRef.current.close();
-      };
-
-      wsRef.current = ws;
-    } catch (e) {
-      reconnectTimer.current = setTimeout(connect, 3000);
+    sharedWs.onerror = () => {
+      if (sharedWs) sharedWs.close();
+    };
+  } catch (e) {
+    if (!reconnectTimeout) {
+      reconnectTimeout = setTimeout(() => {
+        reconnectTimeout = null;
+        initWebSocket();
+      }, 3000);
     }
-  }, []);
+  }
+}
+
+export function useLiveTelemetry() {
+  const [localState, setLocalState] = useState({ ...state });
 
   useEffect(() => {
-    connect();
+    subscribers.add(setLocalState);
+    initWebSocket();
+    setLocalState({ ...state });
+
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      subscribers.delete(setLocalState);
     };
-  }, [connect]);
+  }, []);
+
+  const clearWire = useCallback(() => {
+    state.wireEvents = [];
+    state.espEvents = [];
+    state.ikeEvents = [];
+    state.anomalyAlerts = [];
+    state.rollingScore = null;
+    state.streamCompleted = false;
+    state.completionMessage = null;
+    notifySubscribers();
+  }, []);
 
   const startCapture = async (iface = 'any') => {
     try {
       clearWire();
       const res = await fetch(`/api/v1/live/start?interface=${iface}`, { method: 'POST' });
       const data = await res.json();
-      if (data.status === 'started') setIsStreaming(true);
+      if (data.status === 'started') {
+        state.isStreaming = true;
+        notifySubscribers();
+      }
       return data;
     } catch (e) {
       return { status: 'error', message: e.message };
@@ -155,7 +179,10 @@ export function useLiveTelemetry() {
       }
       const res = await fetch(url, { method: 'POST' });
       const data = await res.json();
-      if (data.status === 'simulation_started') setIsStreaming(true);
+      if (data.status === 'simulation_started') {
+        state.isStreaming = true;
+        notifySubscribers();
+      }
       return data;
     } catch (e) {
       return { status: 'error', message: e.message };
@@ -164,10 +191,15 @@ export function useLiveTelemetry() {
 
   const injectTraffic = async (profile = 'hardened') => {
     try {
-      clearWire();
+      state.streamCompleted = false;
+      state.completionMessage = null;
+      notifySubscribers();
       const res = await fetch(`/api/v1/live/inject/${profile}`, { method: 'POST' });
       const data = await res.json();
-      if (data.status === 'injection_started') setIsStreaming(true);
+      if (data.status === 'injection_started') {
+        state.isStreaming = true;
+        notifySubscribers();
+      }
       return data;
     } catch (e) {
       return { status: 'error', message: e.message };
@@ -178,7 +210,8 @@ export function useLiveTelemetry() {
     try {
       const res = await fetch('/api/v1/live/stop', { method: 'POST' });
       const data = await res.json();
-      setIsStreaming(false);
+      state.isStreaming = false;
+      notifySubscribers();
       return data;
     } catch (e) {
       return { status: 'error', message: e.message };
@@ -186,15 +219,15 @@ export function useLiveTelemetry() {
   };
 
   return {
-    isConnected,
-    isStreaming,
-    streamCompleted,
-    completionMessage,
-    wireEvents,
-    espEvents,
-    ikeEvents,
-    rollingScore,
-    anomalyAlerts,
+    isConnected: localState.isConnected,
+    isStreaming: localState.isStreaming,
+    streamCompleted: localState.streamCompleted,
+    completionMessage: localState.completionMessage,
+    wireEvents: localState.wireEvents,
+    espEvents: localState.espEvents,
+    ikeEvents: localState.ikeEvents,
+    rollingScore: localState.rollingScore,
+    anomalyAlerts: localState.anomalyAlerts,
     startCapture,
     simulateCapture,
     injectTraffic,
