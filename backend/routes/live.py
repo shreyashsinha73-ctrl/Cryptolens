@@ -373,128 +373,130 @@ async def _telemetry_flusher(flush_interval: float = 0.15):
         logger.info("Telemetry flusher task cancelled.")
 
 
+_lifecycle_lock = asyncio.Lock()
+
+
+async def _stop_all_active_internal() -> bool:
+    """Internal helper to cleanly stop and await all streaming tasks under lock."""
+    global _sniffer, _simulation_task, _injection_task, _flusher_task, _inference_task
+    stopped = False
+
+    if _sniffer is not None:
+        try:
+            _sniffer.stop()
+        except Exception as e:
+            logger.warning(f"Error stopping sniffer: {e}")
+        _sniffer = None
+        stopped = True
+
+    tasks_to_cancel = [
+        ("_flusher_task", _flusher_task),
+        ("_inference_task", _inference_task),
+        ("_simulation_task", _simulation_task),
+        ("_injection_task", _injection_task),
+    ]
+
+    for name, task in tasks_to_cancel:
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.warning(f"Error awaiting cancellation of {name}: {e}")
+            stopped = True
+
+    _flusher_task = None
+    _inference_task = None
+    _simulation_task = None
+    _injection_task = None
+    return stopped
+
+
 @router.post("/api/v1/live/start")
 async def start_live_capture(interface: str = Query(default="any")):
     """
     Start the real-time packet sniffer on a network interface.
     Uses bounded thread-safe queue and batched flusher for non-blocking cross-thread telemetry.
+    Thread-safe and idempotent under concurrent calls via _lifecycle_lock.
     """
     global _sniffer, _flusher_task, _inference_task
 
-    if _sniffer is not None:
-        return {"status": "already_running"}
+    async with _lifecycle_lock:
+        await _stop_all_active_internal()
 
-    _sniffer = LiveSniffer(interface=interface)
+        _sniffer = LiveSniffer(interface=interface)
 
-    # Drain any stale queue items
-    while not _telemetry_queue.empty():
-        try:
-            _telemetry_queue.get_nowait()
-        except queue.Empty:
-            break
+        # Drain any stale queue items
+        while not _telemetry_queue.empty():
+            try:
+                _telemetry_queue.get_nowait()
+            except queue.Empty:
+                break
 
-    def on_esp(record: ESPPacketRecord):
-        pkt_dict = {
-            "type": "esp_event",
-            "frame_number": record.frame_number,
-            "packet_type": "ESP (Encrypted)",
-            "protocol": "ESP",
-            "src_ip": record.src_ip,
-            "dst_ip": record.dst_ip,
-            "src_port": None,
-            "dst_port": None,
-            "packet_length": record.packet_length,
-            "spi": record.spi or "—",
-            "seq_num": record.seq_num,
-            "timestamp": record.timestamp,
-            "details": f"Live ESP: SPI={record.spi or '—'}, Seq={record.seq_num or '—'}, Len={record.packet_length}B",
-            "severity": "LOW",
-        }
-        try:
-            _telemetry_queue.put_nowait(pkt_dict)
-        except queue.Full:
-            pass
+        def on_esp(record: ESPPacketRecord):
+            pkt_dict = {
+                "type": "esp_event",
+                "frame_number": record.frame_number,
+                "packet_type": "ESP (Encrypted)",
+                "protocol": "ESP",
+                "src_ip": record.src_ip,
+                "dst_ip": record.dst_ip,
+                "src_port": None,
+                "dst_port": None,
+                "packet_length": record.packet_length,
+                "spi": record.spi or "—",
+                "seq_num": record.seq_num,
+                "timestamp": record.timestamp,
+                "details": f"Live ESP: SPI={record.spi or '—'}, Seq={record.seq_num or '—'}, Len={record.packet_length}B",
+                "severity": "LOW",
+                "iface": getattr(record, "iface", None) or interface,
+            }
+            try:
+                _telemetry_queue.put_nowait(pkt_dict)
+            except queue.Full:
+                pass
 
-    def on_ike(record: IKEPacketRecord):
-        pkt_dict = {
-            "type": "ike_event",
-            "frame_number": record.frame_number,
-            "packet_type": "IKE Handshake",
-            "protocol": "IKE",
-            "src_ip": record.src_ip,
-            "dst_ip": record.dst_ip,
-            "src_port": record.src_port,
-            "dst_port": record.dst_port,
-            "packet_length": len(record.raw_bytes) if record.raw_bytes else 300,
-            "spi": "—",
-            "seq_num": None,
-            "timestamp": record.timestamp,
-            "details": f"Live IKE Handshake: {record.src_ip}:{record.src_port} -> {record.dst_ip}:{record.dst_port}",
-            "severity": "LOW",
-        }
-        try:
-            _telemetry_queue.put_nowait(pkt_dict)
-        except queue.Full:
-            pass
+        def on_ike(record: IKEPacketRecord):
+            pkt_dict = {
+                "type": "ike_event",
+                "frame_number": record.frame_number,
+                "packet_type": "IKE Handshake",
+                "protocol": "IKE",
+                "src_ip": record.src_ip,
+                "dst_ip": record.dst_ip,
+                "src_port": record.src_port,
+                "dst_port": record.dst_port,
+                "packet_length": len(record.raw_bytes) if record.raw_bytes else 300,
+                "spi": "—",
+                "seq_num": None,
+                "timestamp": record.timestamp,
+                "details": f"Live IKE Handshake: {record.src_ip}:{record.src_port} -> {record.dst_ip}:{record.dst_port}",
+                "severity": "LOW",
+                "iface": getattr(record, "iface", None) or interface,
+            }
+            try:
+                _telemetry_queue.put_nowait(pkt_dict)
+            except queue.Full:
+                pass
 
-    _sniffer.on_esp(on_esp)
-    _sniffer.on_ike(on_ike)
-    _sniffer.start()
+        _sniffer.on_esp(on_esp)
+        _sniffer.on_ike(on_ike)
+        _sniffer.start()
 
-    _flusher_task = asyncio.create_task(_telemetry_flusher())
-    _inference_task = asyncio.create_task(_rolling_inference_loop())
-    return {"status": "started", "interface": interface}
+        _flusher_task = asyncio.create_task(_telemetry_flusher())
+        _inference_task = asyncio.create_task(_rolling_inference_loop())
+        return {"status": "started", "interface": interface}
 
 
 @router.post("/api/v1/live/stop")
 async def stop_live_capture():
     """Stop the real-time packet sniffer, simulation, or active injection."""
-    global _sniffer, _simulation_task, _injection_task, _flusher_task, _inference_task
-    stopped = False
-
-    if _sniffer:
-        _sniffer.stop()
-        _sniffer = None
-        stopped = True
-
-    if _flusher_task and not _flusher_task.done():
-        _flusher_task.cancel()
-        try:
-            await _flusher_task
-        except asyncio.CancelledError:
-            pass
-        _flusher_task = None
-        stopped = True
-
-    if _inference_task and not _inference_task.done():
-        _inference_task.cancel()
-        try:
-            await _inference_task
-        except asyncio.CancelledError:
-            pass
-        _inference_task = None
-        stopped = True
-
-    if _simulation_task and not _simulation_task.done():
-        _simulation_task.cancel()
-        try:
-            await _simulation_task
-        except asyncio.CancelledError:
-            pass
-        _simulation_task = None
-        stopped = True
-
-    if _injection_task and not _injection_task.done():
-        _injection_task.cancel()
-        try:
-            await _injection_task
-        except asyncio.CancelledError:
-            pass
-        _injection_task = None
-        stopped = True
-
-    await ws_manager.broadcast({"type": "stream_stopped"})
-    return {"status": "stopped" if stopped else "not_running"}
+    async with _lifecycle_lock:
+        stopped = await _stop_all_active_internal()
+        await ws_manager.broadcast({"type": "stream_stopped"})
+        return {"status": "stopped" if stopped else "not_running"}
 
 
 @router.get("/api/v1/live/status")
@@ -517,15 +519,15 @@ async def inject_traffic(profile: str):
       - 'vulnerable': 3DES-CBC, DH 2, PFS OFF, Sweet32 64-bit alignment, and duplicate sequence Replay Attacks.
     """
     global _injection_task
-    if _injection_task and not _injection_task.done():
-        _injection_task.cancel()
 
     profile_norm = profile.lower()
     if profile_norm not in ("hardened", "vulnerable", "attack", "weak"):
         return {"status": "error", "message": "Profile must be 'hardened' or 'vulnerable'"}
 
-    _injection_task = asyncio.create_task(_run_injection_task(profile_norm))
-    return {"status": "injection_started", "profile": profile_norm}
+    async with _lifecycle_lock:
+        await _stop_all_active_internal()
+        _injection_task = asyncio.create_task(_run_injection_task(profile_norm))
+        return {"status": "injection_started", "profile": profile_norm}
 
 
 async def _run_injection_task(profile: str):
@@ -610,14 +612,15 @@ async def simulate_live_capture(
     """
     Simulate live streaming traffic for the uploaded PCAP file.
     Streams each genuine packet sequentially and stops automatically when the PCAP finishes.
+    Thread-safe and idempotent under concurrent calls via _lifecycle_lock.
     """
     global _simulation_task
-    if _simulation_task and not _simulation_task.done():
-        _simulation_task.cancel()
 
-    target_id = job_id or config_id or "config_01_tunnel_aes256gcm_dh19_pfson"
-    _simulation_task = asyncio.create_task(_run_simulation(target_id))
-    return {"status": "simulation_started", "job_id": target_id}
+    async with _lifecycle_lock:
+        await _stop_all_active_internal()
+        target_id = job_id or config_id or "config_01_tunnel_aes256gcm_dh19_pfson"
+        _simulation_task = asyncio.create_task(_run_simulation(target_id))
+        return {"status": "simulation_started", "job_id": target_id}
 
 
 async def _run_simulation(job_id: str):
