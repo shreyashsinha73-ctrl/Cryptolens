@@ -37,7 +37,7 @@ cd "${PROJECT_ROOT}"
 if "${PYTHON_BIN}" "${PROJECT_ROOT}/scripts/test_v2_features.py"; then
     echo -e "\n${GREEN}${BOLD}================================================================================"
     echo " [+] DEMO AUDIT VERIFICATION COMPLETE: ALL SYSTEMS NOMINAL (5/5 PASSED)"
-    echo "================================================================================${NC}"
+    echo -e "================================================================================${NC}"
     echo -e "${CYAN}Key Audit Verification Highlights for NTRO / Technical Judges:${NC}"
     echo -e " 1. ${BOLD}Control-Plane AST${NC}: Parses raw IKE exchange metadata without inspecting plaintext."
     echo -e " 2. ${BOLD}Data-Plane 1D-CNN${NC}: Traffic classification (VoIP/Streaming) inferred purely from ESP packet length/IAT."
