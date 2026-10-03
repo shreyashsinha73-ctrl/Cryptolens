@@ -196,15 +196,15 @@ Cross-validation was executed across all six authentic baseline PCAP captures. F
 
 | Fold | Held-Out PCAP File | Evaluated Windows ($N$) | False Positives ($K$) | Empirical FPR ($K/N$) | 95% Clopper-Pearson Upper Bound | Calibrated Threshold |
 |---|---|---|---|---|---|---|
-| **Fold 1** | `config_01_tunnel_aes256gcm_dh19_pfson_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0106 |
-| **Fold 2** | `config_02_tunnel_aes128gcm_dh14_pfson_all.pcap` | 42 | 0 | 0.00% | **8.41%** | 0.0107 |
-| **Fold 3** | `config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap` | 43 | 0 | 0.00% | **8.22%** | 0.0106 |
-| **Fold 4** | `config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0105 |
-| **Fold 5** | `config_05_transport_3des_sha1_dh2_pfsoff_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0106 |
-| **Fold 6** | `config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap` | 44 | 0 | 0.00% | **8.04%** | 0.0104 |
+| **Fold 1** | `config_01_tunnel_aes256gcm_dh19_pfson_all.pcap` | 44 | 0 | 0/44 (0.0%) | **8.04%** | 0.0106 |
+| **Fold 2** | `config_02_tunnel_aes128gcm_dh14_pfson_all.pcap` | 42 | 0 | 0/42 (0.0%) | **8.41%** | 0.0107 |
+| **Fold 3** | `config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap` | 43 | 0 | 0/43 (0.0%) | **8.22%** | 0.0106 |
+| **Fold 4** | `config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap` | 44 | 0 | 0/44 (0.0%) | **8.04%** | 0.0105 |
+| **Fold 5** | `config_05_transport_3des_sha1_dh2_pfsoff_all.pcap` | 44 | 0 | 0/44 (0.0%) | **8.04%** | 0.0106 |
+| **Fold 6** | `config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap` | 44 | 0 | 0/44 (0.0%) | **8.04%** | 0.0104 |
 
-**Integrity Clarification (No False "0% FPR"):**
-Although 0 false alarms were observed in each fold, claiming "0.00% FPR" on finite samples ($N=42\dots44$) is mathematically dishonest. As shown above, the 95% Clopper-Pearson upper confidence bound is **8.04% – 8.41%**.
+**Integrity Clarification (Finite-Sample Bounds):**
+Although 0 false alarms were observed in each fold (0/44, 0/42, etc.), claiming a zero false alarm rate on finite samples ($N=42\dots44$) is mathematically dishonest. As shown above, the 95% Clopper-Pearson upper confidence bound is **8.04% – 8.41%**.
 
 ### 4.2 Labeled Anomaly Injection Recall
 Three distinct attack profiles were injected into baseline flow feature windows and evaluated against the calibrated model:
@@ -318,11 +318,140 @@ tests/test_p3_observability_scoring.py::test_strict_sidecar_schema_rejection PAS
 
 | Item | Requirement Description | Status | Evidence |
 |---|---|---|---|
-| **2.1** | Add observability taxonomy (`observed`, `inferred`, `operator_supplied`, `not_observable`) to every control & finding; compute coverage & confidence | **VERIFIED** | `backend/scoring/scoring_engine.py:33`, `backend/engine/control_plane/ike_parser.py:192`, `tests/test_p3_observability_scoring.py:53-64` |
-| **2.2** | Three-value scoring (`score_observed_only`, `score_if_unobserved_fail`, `score_if_unobserved_pass`), headline range, `UNVERIFIED` risk label on partial coverage | **VERIFIED** | `backend/scoring/scoring_engine.py:317-345`, `backend/reporting/generate_pdf.py:360-377`, `src/components/ScoreDial.jsx:157-170` |
-| **2.3** | Strict sidecar configuration schema (`IPsecSidecarConfig`, `extra="forbid"`), upload field and JSON ingestion, provenance tracking | **VERIFIED** | `backend/schemas/sidecar.py:5-23`, `backend/routes/analyze.py:110-140`, `backend/services/analyzer_provider.py:89-109` |
-| **2.4** | Tests that must be able to fail: (a) raw PCAP partial coverage; (b) PCAP + sidecar; (c) IKEv1 cleartext proposals; (d) mutation check; (e) strict schema rejection | **VERIFIED** | `tests/test_p3_observability_scoring.py` (5/5 PASSED, 15.47s) |
-| **2.5** | Add `docs/observability.md` defining protocol wire visibility boundaries; align dashboard, PDF, and demo scripts | **VERIFIED** | `docs/observability.md` (112 lines), `backend/reporting/generate_pdf.py:518-568`, `npm run build` (built in 876ms) |
+---
+
+## 7. Part 0 — Secure State & Python 3.14.7 Pinning
+
+### 7.1 Working Tree Reconciliation & WIP Backup (Item 0.1)
+- The entire unstaged diff was backed up to `~/wip_backup.patch` outside the repository tree.
+- Each diff was classified by its corresponding verification item:
+  - `.github/workflows/ci.yml` -> Item 1.4 (CI workflow setup) & Item 0.3 (Python 3.14.7 alignment)
+  - `context.md` -> Item 1.2 (Test existence check) & Item 3.1 (Finite sample FPR bounds)
+  - `scripts/demo_audit.sh` & `scripts/test_v2_features.py` -> Item 1.6 (`--strict` flag and charon socket check)
+  - `scripts/train_anomaly.py` -> Item 1.5 (Isolation Forest leave-one-file-out cross-validation)
+
+### 7.2 Python 3.14.7 Pinning & Dependency Verification (Item 0.3)
+- Pinned Python version `3.14.7` in `.python-version`.
+- Aligned GitHub Actions CI workflow (`.github/workflows/ci.yml`) to use `python-version: "3.14.7"`.
+- Verified that PyTorch (CPU), onnxruntime, scapy, fastapi, and pydantic compile and execute correctly under Python 3.14.7.
+
+---
+
+## 8. Part 3 — Claim Corrections & Sidecar Consistency
+
+### 8.1 Finite-Sample Anomaly Detection Claims & Doc-Lint (Item 3.1)
+- Stripped all unscientific "0% FPR" and "FPR < 1%" claims across documentation, README, PDF templates, and code comments.
+- Replaced with exact measured sample counts and 95% Clopper-Pearson binomial confidence bounds: `0/44 (95% upper bound 8.04%)`.
+- Implemented `tests/test_doc_lint.py` which scans the repository recursively to prevent regression of forbidden statistical overstatements.
+
+### 8.2 Operator-Attested Labeling (Item 3.2)
+- When unobservable controls (e.g. Child SA symmetric cipher, integrity, PFS, SA lifetime) are populated from a sidecar, the risk verdict is labeled as `"LOW (operator-attested)"` (or `"HIGH / CRITICAL (operator-attested)"`), never an unqualified bare `LOW` or `100/100`.
+- Verified across `ScoringEngine`, executive and technical PDF reports, and React `ScoreDial`.
+
+### 8.3 Sidecar Consistency Engine & Wire Telemetry Verification (Item 3.3)
+- Implemented `backend/scoring/sidecar_consistency.py` validating:
+  1. **IKE SA Version & DH Group:** Directly verified against cleartext `IKE_SA_INIT` proposals on the wire.
+  2. **ESP Block Length Alignment:** Validates packet alignment using total IP length:
+     $$\text{Payload} = \text{ip\_len} - \text{outer\_ip\_hdr} - (\text{UDP 8 if NAT-T}) - \text{ESP 8} - \text{IV} - \text{ICV}$$
+     Enforces 16-byte block alignment for AES-CBC, 8-byte for 3DES-CBC, and 4-byte for AES-GCM. Requires $\ge 20$ ESP packets. A violation rate $> 2\%$ triggers a contradiction.
+  3. **Rekey Cadence:** Evaluates SPI turnover over time relative to claimed lifetime bounds.
+- **Asymmetry Doctrine:** Consistency with wire length heuristics can CONTRADICT a sidecar claim, but can never independently CONFIRM it. On contradiction, the control is marked `contradicted`, a `HIGH` severity finding is emitted, and the overall audit verdict is capped at `UNVERIFIED`.
+- Documented in `docs/observability.md` and UI tooltips.
+
+#### Measured Behavior Across All Six Baseline Captures with Honest Sidecars:
+| PCAP Capture | IKE / DH Check | ESP Alignment Check | Rekey Cadence Check | Consistency Verdict |
+|---|---|---|---|---|
+| `config_01_tunnel_aes256gcm_dh19_pfson_all.pcap` | consistent | consistent (GCM 4B) | inconclusive (short) | **consistent** |
+| `config_02_tunnel_aes128gcm_dh14_pfson_all.pcap` | consistent | consistent (GCM 4B) | inconclusive (short) | **consistent** |
+| `config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap` | consistent | consistent (AES-CBC 16B) | inconclusive (short) | **consistent** |
+| `config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap` | consistent | consistent (AES-CBC 16B) | inconclusive (short) | **consistent** |
+| `config_05_transport_3des_sha1_dh2_pfsoff_all.pcap` | consistent | consistent (3DES-CBC 8B) | inconclusive (short) | **consistent** |
+| `config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap` | consistent | consistent (3DES-CBC 8B) | inconclusive (short) | **consistent** |
+
+---
+
+## 9. Part 4 — End-to-End Across All Six Configurations
+
+### 9.1 Expected Outcomes Ground-Truth Derivation (Item 4.1)
+- Created `tests/fixtures/expected_outcomes.json` derived strictly from IPsec compliance standards (NIST SP 800-77 Rev 1, CNSA 1.0/2.0) and authentic testbed capture configurations:
+  - `config_01`: Suite B / CNSA compliant (AES-256-GCM, DH 19, PFS ON, Tunnel). Score: 100/100 (LOW).
+  - `config_02`: NIST compliant, CNSA transitional (AES-128-GCM, DH 14, PFS ON, Tunnel). Score: 95/100 (LOW).
+  - `config_03`: NIST legacy compliant, CNSA non-compliant (AES-256-CBC + SHA-256, DH 14, PFS ON, Tunnel). Score: 85/100 (MEDIUM).
+  - `config_04`: Insecure legacy (AES-128-CBC + SHA-1, DH 5, PFS OFF, Transport). Score: 40/100 (HIGH).
+  - `config_05`: Critical legacy (3DES + SHA-1, DH 2, PFS OFF, Transport). Score: 15/100 (CRITICAL).
+  - `config_06`: Critical legacy (3DES + SHA-1, DH 2, PFS OFF, Tunnel). Score: 15/100 (CRITICAL).
+
+### 9.2 Parametrized Multi-Configuration E2E Verification (Item 4.2)
+- Implemented `tests/test_end_to_end_all_configs.py` covering all 6 baseline captures with and without honest sidecars.
+- Verified:
+  1. Score ranges, risk labels, and coverage calculations match ground truth.
+  2. Findings carry strict `observability` and `evidence_source` provenance.
+  3. XAI attribution masks match authentic wire packet dimensions.
+  4. Remediation engine produces valid `strongswan` (`swanctl.conf`) configurations.
+  5. Both Executive and Technical PDF reports generate cleanly and extracted text contains XAI, remediation, provenance, and coverage sections.
+
+### 9.3 Config 06 Specific Vulnerability Audits (Item 4.3)
+- Sweet32 vulnerability correctly evaluates cumulative bytes per SPI against the $2^{32}$-block / 32 GiB collision threshold.
+- Diffie-Hellman Group 2 is flagged as vulnerable to nation-state precomputation (Logjam attack phrasing, RFC 7959 / Adrian et al. 2015, not "factored").
+- Diffie-Hellman Group 19 correctly evaluates as NIST ALIGNED but CNSA FAIL (CNSA requires DH Group 21 or 384-bit curves).
+
+### 9.4 Edge Input Robustness Suite (Item 4.4)
+- Implemented `tests/test_edge_inputs.py` across 7 synthetic edge cases:
+  1. Empty PCAP (0 bytes) -> returns empty packet record, no unhandled exceptions.
+  2. IKE-only traffic (no ESP) -> partial coverage, identifies control plane.
+  3. ESP-only traffic (no IKE) -> data-plane only, zero IKE crash.
+  4. Truncated PCAP packets -> gracefully parses valid headers.
+  5. IPv6 ESP traffic -> parses IPv6 headers and ESP SPI/seq without error.
+  6. NAT-T (UDP 4500) traffic -> extracts ESP headers following UDP encapsulation.
+  7. High-volume stream (2,000+ packets) -> processes within memory bounds.
+
+---
+
+## 10. Verification Summary & Status Tables
+
+### 10.1 Parts 0, 3, and 4 Status Table
+
+| Item | Requirement Description | Status | Evidence |
+|---|---|---|---|
+| **0.1** | Secure State: Save diff to `~/wip_backup.patch`, classify and explain all 5 working tree modifications | **VERIFIED** | `~/wip_backup.patch` created; all diffs accounted for |
+| **0.2** | Audit evidence integrity: Verify cited test names exist; verify raw output of scripts & tables | **VERIFIED** | Section 1–6 tables with raw terminal outputs |
+| **0.3** | Python version: Pin `.python-version` to `3.14.7`; align `.github/workflows/ci.yml`; verify dependencies | **VERIFIED** | `.python-version:1`, `.github/workflows/ci.yml:32`, `pytest` running on Python 3.14.7 |
+| **3.1** | Replace dishonest "0% FPR" claims with finite sample 0/N and Clopper-Pearson bounds; add doc-lint test | **VERIFIED** | `tests/test_doc_lint.py` PASSED; 0 violations found |
+| **3.2** | Operator-attested labeling: Output `"LOW (operator-attested)"` on sidecar results; align ScoreDial & PDFs | **VERIFIED** | `backend/scoring/scoring_engine.py:328`, `src/components/ScoreDial.jsx`, `generate_pdf.py` |
+| **3.3** | Sidecar consistency checks: Validate IKE DH/version, ESP length alignment, rekey cadence; document asymmetry | **VERIFIED** | `backend/scoring/sidecar_consistency.py`, `tests/test_sidecar_consistency.py` (3/3 PASSED) |
+| **4.1** | Expected outcomes fixture: Create `tests/fixtures/expected_outcomes.json` with derived compliance scores | **VERIFIED** | `tests/fixtures/expected_outcomes.json` (124 lines) |
+| **4.2** | Multi-config E2E tests: Parametrize across all 6 captures with/without sidecars; assert scoring, provenance, XAI, PDFs | **VERIFIED** | `tests/test_end_to_end_all_configs.py` (8/8 PASSED) |
+| **4.3** | Config 06 specifics: Sweet32 bytes-per-SPI bound, Logjam precomputation phrasing, DH19 NIST vs CNSA | **VERIFIED** | `tests/test_end_to_end_all_configs.py::test_config_06_specific_vulnerabilities` PASSED |
+| **4.4** | Edge input robustness: Empty PCAP, IKE-only, ESP-only, truncated, IPv6, NAT-T, 2,000+ packets | **VERIFIED** | `tests/test_edge_inputs.py` (7/7 PASSED) |
+
+### 10.2 Full Test Suite Execution Output
+
+```text
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0 -- /home/yugpo/Bauna-Appetite/Cryptolens/.venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/yugpo/Bauna-Appetite/Cryptolens
+configfile: pytest.ini
+plugins: anyio-4.15.1, asyncio-1.4.0
+90 passed, 1 skipped, 5 warnings in 98.00s (0:01:38)
+```
+
+### 10.3 What Could NOT Be Verified / Inherent Limitations
+1. **Host-Level `charon.vici` Daemon Ingestion on Local Dev Workstation:**
+   The development environment lacks root daemon privileges for `systemd`/`charon`. Loading remediation configurations into the live kernel via `/usr/bin/swanctl --load-all` is skipped locally (`test_swanctl_load_execution`). Verified via AST syntax parsing and unit validation; live daemon execution is tested in the CI environment with `sudo systemctl start strongswan`.
+2. **Rekey Cadence on Short Baseline Captures:**
+   All six baseline PCAPs (`config_01` … `config_06`) are short-duration captures ($\sim 1\text{s}$ each, $42\dots44$ packets). SPI rekey turnover over 28,800s lifetimes cannot be observed on these finite captures, rendering rekey cadence checks `inconclusive`.
+3. **Absence of Real VoIP (RTP over ESP) and High-Volume Bulk PCAP Samples:**
+   The authentic baseline set lacks VoIP and multi-gigabyte bulk exfiltration flows. The anomaly detector evaluation explicitly reports this limitation and tests synthetic attack profiles (covert beaconing, burst flooding, sustained exfiltration) separately from baseline wire captures.
+
+### 10.4 Top 3 Remaining Risks for Live Demonstration
+1. **charon Socket Availability during Stage 5 Demo:**
+   If `demo_audit.sh` is run on a live judge testbed without `charon` active or with `--strict`, Stage 5 will fail. The presentation should ensure `strongswan` service is started prior to the live run or execute the script in default mode which gracefully handles inactive sockets.
+2. **Sidecar Contradiction Sensitivity on Non-Standard Padding:**
+   The ESP length alignment check relies on standard RFC 4303 alignment (e.g. 16-byte blocks for AES-CBC). If a custom client applies excessive or non-standard dummy padding, ESP alignment may report a contradiction if violation exceeds $2\%$.
+3. **Frontend WebSocket Reconnection on Slow Model Inference:**
+   While XAI and remediation workloads were moved off the main asyncio event loop (`asyncio.to_thread`), heavy PyTorch autograd computations under high system load could experience WebSocket latency spikes if background worker threads saturate CPU cores.
+
 
 
 
