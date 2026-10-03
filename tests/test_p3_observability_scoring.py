@@ -93,7 +93,7 @@ def test_config_01_with_operator_sidecar_higher_coverage():
     assert result["unobserved_controls_count"] == 0
 
     # 2. Score resolution
-    assert result["risk_level"] == "LOW"
+    assert result["risk_level"] == "LOW (operator-attested)"
     assert result["score_headline"] == "100/100, coverage 8/8"
     assert result["score_if_unobserved_fail"] == 100.0
     assert result["score_if_unobserved_pass"] == 100.0

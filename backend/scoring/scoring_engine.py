@@ -370,6 +370,7 @@ class ScoringEngine:
         observed_controls_count = 0
         operator_supplied_controls_count = 0
         unobserved_controls_count = 0
+        contradicted_controls_count = 0
 
         sum_verified_awarded = 0.0
         sum_verified_max = 0.0
@@ -389,7 +390,11 @@ class ScoringEngine:
                 "evidence_source": ev_src,
             }
 
-            if obs == "observed":
+            if obs == "contradicted":
+                contradicted_controls_count += 1
+                unobserved_controls_count += 1
+                sum_unobserved_max += max_w
+            elif obs == "observed":
                 observed_controls_count += 1
                 sum_verified_awarded += awarded
                 sum_verified_max += max_w
@@ -400,6 +405,16 @@ class ScoringEngine:
             else:
                 unobserved_controls_count += 1
                 sum_unobserved_max += max_w
+
+        # Merge sidecar consistency findings if provided in analysis input
+        sidecar_consistency = analysis_input.get("sidecar_consistency")
+        if sidecar_consistency and isinstance(sidecar_consistency, dict):
+            extra_findings = sidecar_consistency.get("findings", [])
+            for ef in extra_findings:
+                if not any(f.get("finding_id") == ef.get("finding_id") for f in findings):
+                    findings.append(ef)
+            if sidecar_consistency.get("contradictions_count", 0) > 0:
+                contradicted_controls_count += sidecar_consistency.get("contradictions_count", 0)
 
         total_controls = len(categories)
         total_verified = observed_controls_count + operator_supplied_controls_count
@@ -435,8 +450,11 @@ class ScoringEngine:
 
         primary_score = score_if_unobserved_fail
 
-        if unobserved_controls_count > 0:
+        if unobserved_controls_count > 0 or contradicted_controls_count > 0:
             risk_level = "UNVERIFIED"
+        elif operator_supplied_controls_count > 0:
+            base_risk = self.get_risk_level(primary_score)
+            risk_level = f"{base_risk} (operator-attested)"
         else:
             risk_level = self.get_risk_level(primary_score)
 
