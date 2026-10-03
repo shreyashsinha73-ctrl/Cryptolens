@@ -1,0 +1,270 @@
+{
+  "_metadata": {
+    "description": "Deterministic baseline audit expectations for testbed captures config_01 through config_06.",
+    "derivation_rule": "Scores are derived from compliance_map.yaml weights (enc=25, int=15, kex=15, pfs=10, replay=10, life=10, ike=10, mode=5). Without sidecar, only wire-observable controls (ike_version=10, key_exchange=15/10/0, replay_protection=10) contribute to verified score (3/8 verified controls), with the 5 unobserved/inferred controls (encryption, integrity, pfs, key_lifetime, mode; sum max=65) yielding worst-to-best range and UNVERIFIED risk. With honest sidecar, all 8 controls are verified, yielding full coverage 8/8 and risk label stamped with '(operator-attested)'. NIST SP 800-77r1 and NSA CNSA 2.0 statuses are evaluated per standard control rules in compliance_standards.yaml."
+  },
+  "config_01": {
+    "filename": "config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
+    "ground_truth": {
+      "mode": "Tunnel",
+      "encryption": "AES-256-GCM",
+      "integrity": "AEAD",
+      "dh_group": 19,
+      "pfs": true,
+      "ike_version": "IKEv2",
+      "replay_protection": true,
+      "key_lifetime_seconds": 28800
+    },
+    "no_sidecar": {
+      "coverage": "3/8",
+      "score_range": [35.0, 100.0],
+      "risk_label": "UNVERIFIED",
+      "expected_findings_ids": [
+        "NOT_OBSERVED_ENCRYPTION",
+        "NOT_OBSERVED_INTEGRITY",
+        "NOT_OBSERVED_PFS",
+        "UNKNOWN_KEY_LIFETIME"
+      ]
+    },
+    "with_sidecar": {
+      "coverage": "8/8",
+      "score_range": [100.0, 100.0],
+      "risk_label": "LOW (operator-attested)",
+      "expected_findings_ids": []
+    },
+    "standards_compliance": {
+      "dh_group": {
+        "NIST_SP_800_77_R1": "ALIGNED",
+        "CNSA_2_0": "FAIL"
+      },
+      "encryption": {
+        "NIST_SP_800_77_R1": "ALIGNED",
+        "CNSA_2_0": "ALIGNED"
+      }
+    }
+  },
+  "config_02": {
+    "filename": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
+    "ground_truth": {
+      "mode": "Tunnel",
+      "encryption": "AES-128-GCM",
+      "integrity": "AEAD",
+      "dh_group": 14,
+      "pfs": true,
+      "ike_version": "IKEv2",
+      "replay_protection": true,
+      "key_lifetime_seconds": 28800
+    },
+    "no_sidecar": {
+      "coverage": "3/8",
+      "score_range": [30.0, 95.0],
+      "risk_label": "UNVERIFIED",
+      "expected_findings_ids": [
+        "KEX_001",
+        "NOT_OBSERVED_ENCRYPTION",
+        "NOT_OBSERVED_INTEGRITY",
+        "NOT_OBSERVED_PFS",
+        "UNKNOWN_KEY_LIFETIME"
+      ]
+    },
+    "with_sidecar": {
+      "coverage": "8/8",
+      "score_range": [95.0, 95.0],
+      "risk_label": "LOW (operator-attested)",
+      "expected_findings_ids": [
+        "KEX_001"
+      ]
+    },
+    "standards_compliance": {
+      "dh_group": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "FAIL"
+      },
+      "encryption": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "REVIEW"
+      }
+    }
+  },
+  "config_03": {
+    "filename": "config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap",
+    "ground_truth": {
+      "mode": "Tunnel",
+      "encryption": "AES-256-CBC",
+      "integrity": "HMAC-SHA2-256",
+      "dh_group": 14,
+      "pfs": true,
+      "ike_version": "IKEv2",
+      "replay_protection": true,
+      "key_lifetime_seconds": 28800
+    },
+    "no_sidecar": {
+      "coverage": "3/8",
+      "score_range": [30.0, 95.0],
+      "risk_label": "UNVERIFIED",
+      "expected_findings_ids": [
+        "KEX_001",
+        "NOT_OBSERVED_ENCRYPTION",
+        "NOT_OBSERVED_INTEGRITY",
+        "NOT_OBSERVED_PFS",
+        "UNKNOWN_KEY_LIFETIME"
+      ]
+    },
+    "with_sidecar": {
+      "coverage": "8/8",
+      "score_range": [90.0, 90.0],
+      "risk_label": "LOW (operator-attested)",
+      "expected_findings_ids": [
+        "KEX_001"
+      ]
+    },
+    "standards_compliance": {
+      "dh_group": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "FAIL"
+      },
+      "encryption": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "REVIEW"
+      }
+    }
+  },
+  "config_04": {
+    "filename": "config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap",
+    "ground_truth": {
+      "mode": "Transport",
+      "encryption": "AES-128-CBC",
+      "integrity": "HMAC-SHA1-96",
+      "dh_group": 5,
+      "pfs": false,
+      "ike_version": "IKEv2",
+      "replay_protection": true,
+      "key_lifetime_seconds": 28800
+    },
+    "no_sidecar": {
+      "coverage": "3/8",
+      "score_range": [20.0, 85.0],
+      "risk_label": "UNVERIFIED",
+      "expected_findings_ids": [
+        "UNKNOWN_KEY_EXCHANGE",
+        "NOT_OBSERVED_ENCRYPTION",
+        "NOT_OBSERVED_INTEGRITY",
+        "NOT_OBSERVED_PFS",
+        "UNKNOWN_KEY_LIFETIME"
+      ]
+    },
+    "with_sidecar": {
+      "coverage": "8/8",
+      "score_range": [50.0, 50.0],
+      "risk_label": "HIGH (operator-attested)",
+      "expected_findings_ids": [
+        "ENC_001",
+        "INT_001",
+        "UNKNOWN_KEY_EXCHANGE",
+        "PFS_DISABLED"
+      ]
+    },
+    "standards_compliance": {
+      "dh_group": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "FAIL"
+      },
+      "encryption": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "REVIEW"
+      }
+    }
+  },
+  "config_05": {
+    "filename": "config_05_transport_3des_sha1_dh2_pfsoff_all.pcap",
+    "ground_truth": {
+      "mode": "Transport",
+      "encryption": "3DES",
+      "integrity": "HMAC-SHA1-96",
+      "dh_group": 2,
+      "pfs": false,
+      "ike_version": "IKEv2",
+      "replay_protection": true,
+      "key_lifetime_seconds": 28800
+    },
+    "no_sidecar": {
+      "coverage": "3/8",
+      "score_range": [20.0, 85.0],
+      "risk_label": "UNVERIFIED",
+      "expected_findings_ids": [
+        "KEX_002",
+        "NOT_OBSERVED_ENCRYPTION",
+        "NOT_OBSERVED_INTEGRITY",
+        "NOT_OBSERVED_PFS",
+        "UNKNOWN_KEY_LIFETIME"
+      ]
+    },
+    "with_sidecar": {
+      "coverage": "8/8",
+      "score_range": [35.0, 35.0],
+      "risk_label": "CRITICAL (operator-attested)",
+      "expected_findings_ids": [
+        "WEAK_CIPHER",
+        "INT_001",
+        "KEX_002",
+        "PFS_DISABLED"
+      ]
+    },
+    "standards_compliance": {
+      "dh_group": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "FAIL"
+      },
+      "encryption": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "FAIL"
+      }
+    }
+  },
+  "config_06": {
+    "filename": "config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap",
+    "ground_truth": {
+      "mode": "Tunnel",
+      "encryption": "3DES",
+      "integrity": "HMAC-SHA1-96",
+      "dh_group": 2,
+      "pfs": false,
+      "ike_version": "IKEv2",
+      "replay_protection": true,
+      "key_lifetime_seconds": 28800
+    },
+    "no_sidecar": {
+      "coverage": "3/8",
+      "score_range": [20.0, 85.0],
+      "risk_label": "UNVERIFIED",
+      "expected_findings_ids": [
+        "KEX_002",
+        "NOT_OBSERVED_ENCRYPTION",
+        "NOT_OBSERVED_INTEGRITY",
+        "NOT_OBSERVED_PFS",
+        "UNKNOWN_KEY_LIFETIME"
+      ]
+    },
+    "with_sidecar": {
+      "coverage": "8/8",
+      "score_range": [35.0, 35.0],
+      "risk_label": "CRITICAL (operator-attested)",
+      "expected_findings_ids": [
+        "WEAK_CIPHER",
+        "INT_001",
+        "KEX_002",
+        "PFS_DISABLED"
+      ]
+    },
+    "standards_compliance": {
+      "dh_group": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "FAIL"
+      },
+      "encryption": {
+        "NIST_SP_800_77_R1": "REVIEW",
+        "CNSA_2_0": "FAIL"
+      }
+    }
+  }
+}

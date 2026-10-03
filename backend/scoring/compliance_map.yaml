@@ -73,7 +73,7 @@ key_exchange:
       severity: CRITICAL
       finding_id: KEX_002
       title: "Weak DH Group"
-      description: "DH Group 2 (1024-bit MODP) is insecure against well-resourced attackers."
+      description: "DH Group 2 (1024-bit MODP) is insecure and within reach of nation-state precomputation attacks (Logjam). Upgrade to ECP groups (19, 20, 21) or Group 14+."
 
 pfs:
   true:

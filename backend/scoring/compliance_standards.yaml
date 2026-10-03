@@ -68,6 +68,10 @@ standards:
       key_exchange:
         description: "Observed IKE Diffie-Hellman group."
         values:
+          2:
+            status: REVIEW
+          5:
+            status: REVIEW
           14:
             status: REVIEW
           19:
@@ -160,6 +164,8 @@ standards:
           21:
             status: REVIEW
           2:
+            status: FAIL
+          5:
             status: FAIL
 
       ike_version:

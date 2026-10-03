@@ -487,6 +487,17 @@ Respond with STRICT JSON ONLY matching this schema:
         ipsec_conf = self._render_ipsec_conf(config)
         xfrm_script = self._render_xfrm(config)
 
+        remediated_vulns = [
+            f.get("title", f.get("finding_id", "Finding"))
+            for f in (findings or [])
+            if f.get("severity") in ("CRITICAL", "HIGH", "MEDIUM")
+        ]
+        diff_summary = (
+            f"Remediates {len(remediated_vulns)} identified security weaknesses "
+            f"(including {', '.join(set(f.get('title', '') for f in (findings or []) if f.get('severity') in ('CRITICAL', 'HIGH')))})."
+            if remediated_vulns else "Configuration already meets baseline security requirements."
+        )
+
         return {
             "authoritative_target": "swanctl_conf",
             "engine_used": "deterministic_template",
@@ -499,6 +510,9 @@ Respond with STRICT JSON ONLY matching this schema:
             "ipsec_conf_status": "reference/untested",
             "xfrm_script": xfrm_script,
             "xfrm_script_status": "reference/untested",
+            "remediated_vulnerabilities": remediated_vulns,
+            "findings_count": len(findings or []),
+            "diff_analysis": diff_summary,
         }
 
     def _render_swanctl(self, config: HardenedIPsecConfig) -> str:

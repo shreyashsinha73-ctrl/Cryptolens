@@ -1,0 +1,10 @@
+{
+  "ike_version": "IKEv2",
+  "encryption_algorithm": "3DES",
+  "integrity_algorithm": "HMAC-SHA1-96",
+  "dh_group": 2,
+  "pfs_enabled": false,
+  "key_lifetime_seconds": 28800,
+  "replay_protection_enabled": true,
+  "operating_mode": "Transport"
+}

@@ -1,0 +1,10 @@
+{
+  "ike_version": "IKEv2",
+  "encryption_algorithm": "AES-128-GCM",
+  "integrity_algorithm": "AEAD",
+  "dh_group": 14,
+  "pfs_enabled": true,
+  "key_lifetime_seconds": 28800,
+  "replay_protection_enabled": true,
+  "operating_mode": "Tunnel"
+}
