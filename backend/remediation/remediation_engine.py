@@ -20,6 +20,8 @@ import requests
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from backend.remediation.ai_explainer import AIExplainer
+
 logger = logging.getLogger(__name__)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -250,6 +252,59 @@ class HardenedIPsecConfig(BaseModel):
         return "-".join(parts)
 
 
+def project_hardened_score(config: "HardenedIPsecConfig") -> dict:
+    """PROJECTED (not re-measured) score: existing ScoringEngine rules applied to the
+    hardened parameters, treated as operator-attested because nothing was captured."""
+    from backend.scoring.scoring_engine import ScoringEngine
+
+    enc = {"aes256gcm16": "AES-256-GCM", "aes128gcm16": "AES-128-GCM"}.get(
+        config.encryption.lower(), config.encryption)
+    dh = {"ecp256": 19, "ecp384": 20, "ecp521": 21, "modp2048": 14, "modp3072": 15,
+          "modp4096": 16, "curve25519": 31}.get(config.dh_group.lower())
+    secs = int(config.rekey_time[:-1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[config.rekey_time[-1]]
+    cp = {
+        "ike_version": "IKEv2",
+        "encryption_algorithm": enc,
+        "integrity_algorithm": "AEAD" if not config.integrity else config.integrity.upper(),
+        "dh_group": dh,
+        "pfs_enabled": config.pfs_enabled,
+        "operating_mode": "Tunnel",
+        "replay_protection_enabled": True,
+        "key_lifetime_seconds": secs,
+    }
+    cp["evidence_source"] = {k: "operator_supplied" for k in cp}
+    r = ScoringEngine().evaluate({"control_plane": cp, "data_plane": {}})
+    return {
+        "label": "PROJECTED",
+        "note": "Not re-measured: scoring rules applied to the hardened parameters.",
+        "score": r.get("score"),
+        "risk_level": r.get("risk_level"),
+        "coverage": r.get("coverage"),
+        "score_headline": r.get("score_headline"),
+        "score_if_unobserved_fail": r.get("score_if_unobserved_fail"),
+        "score_if_unobserved_pass": r.get("score_if_unobserved_pass"),
+    }
+
+
+def build_config_diff(control_plane: dict, config: "HardenedIPsecConfig") -> list:
+    """Current (observed) vs hardened parameters; current is None when not observable."""
+    cur = control_plane or {}
+    rows = [
+        ("Encryption", cur.get("encryption_algorithm"), config.encryption),
+        ("Integrity", cur.get("integrity_algorithm"), config.integrity or "AEAD (built in)"),
+        ("DH group", cur.get("dh_group"), config.dh_group),
+        ("PFS", cur.get("pfs_enabled"), config.pfs_enabled),
+        ("IKE version", cur.get("ike_version"), f"IKEv{config.ike_version}"),
+        ("Rekey time", cur.get("key_lifetime_seconds"), config.rekey_time),
+        ("Replay window", cur.get("replay_window"), config.replay_window),
+    ]
+    return [
+        {"param": k, "current": None if c is None else str(c), "hardened": str(h),
+         "changed": c is None or str(c).lower() != str(h).lower()}
+        for k, c, h in rows
+    ]
+
+
 class RemediationEngine:
     """
     Generates hardened IPsec configurations using:
@@ -267,6 +322,7 @@ class RemediationEngine:
         self.ollama_timeout = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "5.0"))
         self.gemini_timeout = float(os.getenv("GEMINI_TIMEOUT_SECONDS", "10.0"))
         self.jinja_env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+        self.explainer = AIExplainer()
 
     def _build_prompt(
         self,
@@ -398,75 +454,6 @@ Respond with STRICT JSON ONLY matching this schema:
         raw_rw = control_plane.get("replay_window")
         replay_window = int(raw_rw) if raw_rw is not None and str(raw_rw).isdigit() else 64
 
-        prompt = self._build_prompt(
-            findings, control_plane, local_subnet, remote_subnet, local_id, remote_id, replay_window
-        )
-
-        ollama_config, ollama_err = self._try_ollama(prompt)
-        if ollama_config is not None:
-            swanctl_conf = self._render_swanctl(ollama_config)
-            is_valid, syntax_err = validate_swanctl_syntax(swanctl_conf)
-            if is_valid:
-                ipsec_conf = self._render_ipsec_conf(ollama_config)
-                xfrm_script = self._render_xfrm(ollama_config)
-                return {
-                    "authoritative_target": "swanctl_conf",
-                    "engine_used": "ollama",
-                    "validation_level": "profile_compliant",
-                    "validation_passed": True,
-                    "fallback_reason": None,
-                    "config": ollama_config.model_dump(),
-                    "swanctl_conf": swanctl_conf,
-                    "ipsec_conf": ipsec_conf,
-                    "ipsec_conf_status": "reference/untested",
-                    "xfrm_script": xfrm_script,
-                    "xfrm_script_status": "reference/untested",
-                }
-            else:
-                ollama_err = f"syntax_error: {syntax_err}"
-
-        logger.info(f"Ollama remediation failed ({ollama_err}). Checking cloud LLM fallback...")
-
-        gemini_config = None
-        gemini_err = None
-
-        if not self.enable_cloud_llm:
-            gemini_err = "airgap_policy (ENABLE_CLOUD_LLM=false)"
-            logger.info("Cloud LLM disabled by policy (ENABLE_CLOUD_LLM=false)")
-        else:
-            gemini_config, gemini_err = self._try_gemini(prompt)
-            if gemini_config is not None:
-                swanctl_conf = self._render_swanctl(gemini_config)
-                is_valid, syntax_err = validate_swanctl_syntax(swanctl_conf)
-                if is_valid:
-                    ipsec_conf = self._render_ipsec_conf(gemini_config)
-                    xfrm_script = self._render_xfrm(gemini_config)
-                    return {
-                        "authoritative_target": "swanctl_conf",
-                        "engine_used": "gemini",
-                        "validation_level": "profile_compliant",
-                        "validation_passed": True,
-                        "fallback_reason": f"ollama_failed ({ollama_err})",
-                        "config": gemini_config.model_dump(),
-                        "swanctl_conf": swanctl_conf,
-                        "ipsec_conf": ipsec_conf,
-                        "ipsec_conf_status": "reference/untested",
-                        "xfrm_script": xfrm_script,
-                        "xfrm_script_status": "reference/untested",
-                    }
-                else:
-                    gemini_err = f"syntax_error: {syntax_err}"
-
-        # Fallback to deterministic template
-        fallback_reasons = []
-        if ollama_err:
-            fallback_reasons.append(f"ollama: {ollama_err}")
-        if gemini_err:
-            fallback_reasons.append(f"gemini: {gemini_err}")
-        combined_reason = "; ".join(fallback_reasons) if fallback_reasons else "default_template"
-
-        logger.info(f"Falling back to deterministic template remediation: {combined_reason}")
-
         config = HardenedIPsecConfig(
             ike_version=2,
             encryption="aes256gcm16",
@@ -486,6 +473,13 @@ Respond with STRICT JSON ONLY matching this schema:
         is_valid, syntax_err = validate_swanctl_syntax(swanctl_conf)
         ipsec_conf = self._render_ipsec_conf(config)
         xfrm_script = self._render_xfrm(config)
+        vendor_drafts = self._render_vendor_drafts(config)
+
+        # Generate AI explanation and executive summary with deterministic fallback
+        explanation_res = self.explainer.explain(
+            findings=findings or [],
+            hardened_params=config.model_dump(),
+        )
 
         remediated_vulns = [
             f.get("title", f.get("finding_id", "Finding"))
@@ -500,19 +494,27 @@ Respond with STRICT JSON ONLY matching this schema:
 
         return {
             "authoritative_target": "swanctl_conf",
-            "engine_used": "deterministic_template",
+            "engine_used": explanation_res.get("engine_used", "Template"),
             "validation_level": "profile_compliant" if is_valid else "syntax_valid",
             "validation_passed": is_valid,
-            "fallback_reason": combined_reason,
+            "fallback_reason": explanation_res.get("fallback_reason"),
+            "is_ai_generated": explanation_res.get("is_ai_generated", False),
+            "is_cached": explanation_res.get("is_cached", False),
+            "cached_badge": explanation_res.get("cached_badge"),
+            "executive_summary": explanation_res.get("executive_summary", ""),
+            "findings_explanations": explanation_res.get("findings_explanations", []),
             "config": config.model_dump(),
             "swanctl_conf": swanctl_conf,
             "ipsec_conf": ipsec_conf,
             "ipsec_conf_status": "reference/untested",
             "xfrm_script": xfrm_script,
             "xfrm_script_status": "reference/untested",
+            "vendor_drafts": vendor_drafts,
             "remediated_vulnerabilities": remediated_vulns,
             "findings_count": len(findings or []),
             "diff_analysis": diff_summary,
+            "config_diff": build_config_diff(control_plane, config),
+            "projected": project_hardened_score(config),
         }
 
     def _render_swanctl(self, config: HardenedIPsecConfig) -> str:
@@ -615,3 +617,61 @@ ip xfrm policy add \\
 
 echo "xfrm policies installed successfully."
 """
+
+    def _render_vendor_drafts(self, config: HardenedIPsecConfig) -> dict:
+        """Render reference vendor configuration drafts (Cisco, Fortinet, Palo Alto)."""
+        rekey_seconds = int(config.rekey_time.rstrip("smhd")) if config.rekey_time.rstrip("smhd").isdigit() else 3600
+
+        def _safe_render(tmpl_name: str, **ctx) -> str:
+            try:
+                tmpl = self.jinja_env.get_template(tmpl_name)
+                return tmpl.render(**ctx)
+            except Exception as e:
+                return f"# Error rendering draft: {e}"
+
+        cisco_content = _safe_render(
+            "cisco_iosxe.j2",
+            rekey_seconds=rekey_seconds,
+            replay_window=config.replay_window,
+            local_id=config.local_id,
+            remote_id=config.remote_id,
+        )
+
+        fortinet_content = _safe_render(
+            "fortinet_fortios.j2",
+            rekey_seconds=rekey_seconds,
+            local_subnet=f"{config.local_subnet.split('/')[0]} 255.255.255.0",
+            remote_subnet=f"{config.remote_subnet.split('/')[0]} 255.255.255.0",
+        )
+
+        palo_alto_content = _safe_render(
+            "palo_alto_panos.j2",
+            rekey_seconds=rekey_seconds,
+        )
+
+        badge_notice = "AI DRAFT, UNVALIDATED, review before applying"
+        disclaimer = "No claim of loadability. Provided for reference only."
+
+        return {
+            "cisco_iosxe": {
+                "vendor": "Cisco IOS-XE",
+                "badge": badge_notice,
+                "notice": disclaimer,
+                "status": "reference/unvalidated",
+                "content": cisco_content,
+            },
+            "fortinet_fortios": {
+                "vendor": "Fortinet FortiOS",
+                "badge": badge_notice,
+                "notice": disclaimer,
+                "status": "reference/unvalidated",
+                "content": fortinet_content,
+            },
+            "palo_alto_panos": {
+                "vendor": "Palo Alto PAN-OS",
+                "badge": badge_notice,
+                "notice": disclaimer,
+                "status": "reference/unvalidated",
+                "content": palo_alto_content,
+            },
+        }

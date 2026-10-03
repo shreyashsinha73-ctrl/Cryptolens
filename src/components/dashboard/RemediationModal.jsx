@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import BeforeAfterDiff from './BeforeAfterDiff.jsx';
 import Badge from '../common/Badge.jsx';
 
 export default function RemediationModal({ jobId, isOpen, onClose }) {
@@ -92,6 +93,12 @@ export default function RemediationModal({ jobId, isOpen, onClose }) {
                 <div><span className="text-[10px] text-gray-400 block font-sans font-bold uppercase">Local ID</span>{remediation.config?.local_id}</div>
                 <div><span className="text-[10px] text-gray-400 block font-sans font-bold uppercase">Remote ID</span>{remediation.config?.remote_id}</div>
               </div>
+
+              <BeforeAfterDiff
+                diff={remediation?.config_diff}
+                projected={remediation?.projected}
+                engineUsed={remediation?.engine_used}
+              />
 
               {/* Tab Selector */}
               <div className="flex items-center justify-between border-b border-gray-100 dark:border-[#2C384B] pb-2">
