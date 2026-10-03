@@ -17,6 +17,7 @@ import LiveTelemetryPanel from './components/dashboard/LiveTelemetryPanel.jsx';
 import ThreatHeatmap from './components/dashboard/ThreatHeatmap.jsx';
 import RemediationModal from './components/dashboard/RemediationModal.jsx';
 import ExecutiveView from './components/dashboard/ExecutiveView.jsx';
+import AttackerImpactCards from './components/dashboard/AttackerImpactCards.jsx';
 
 // ── Empty state shown before any PCAP is uploaded ──────────────────────────
 const EmptyState = ({ onUploadPcap, uploading }) => {
@@ -359,6 +360,7 @@ function MainSocApp() {
                     engineUsed={analysisResult?.remediation?.engine_used}
                   />
                 )}
+                {execMode && isRealData && <AttackerImpactCards findings={data.threat_matrix || []} />}
                 {/* Fallback Banner */}
                 {isRealData && !analysisResult?.control_plane && (
                   <div className="bg-amber-500/10 border-2 border-amber-500/40 text-amber-700 dark:text-amber-300 px-5 py-3.5 rounded-2xl text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
