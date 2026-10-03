@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import BeforeAfterDiff from './BeforeAfterDiff.jsx';
+import { Skeleton } from '../common/SeverityChip.jsx';
 import Badge from '../common/Badge.jsx';
 
 export default function RemediationModal({ jobId, isOpen, onClose }) {
@@ -63,8 +64,8 @@ export default function RemediationModal({ jobId, isOpen, onClose }) {
         {/* Body */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
           {loading ? (
-            <div className="py-12 text-center text-sm text-gray-400">
-              <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+            <div className="py-6 text-center text-sm text-gray-400">
+              <Skeleton lines={5} />
               Generating and syntax-validating hardened IPsec configuration...
             </div>
           ) : error ? (
