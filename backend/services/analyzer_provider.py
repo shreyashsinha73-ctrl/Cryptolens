@@ -102,23 +102,33 @@ class AnalyzerProvider:
                     pass
 
         # Validate and apply operator-supplied sidecar configuration
+        sidecar_report = None
         if sidecar_config is not None:
             if isinstance(sidecar_config, dict):
                 validated_sidecar = IPsecSidecarConfig(**sidecar_config)
             else:
                 validated_sidecar = sidecar_config
 
+            from backend.scoring.sidecar_consistency import check_sidecar_consistency
+            sidecar_report = check_sidecar_consistency(pcap_path, control_plane_raw, validated_sidecar)
+
             if "observability" not in control_plane_raw or not isinstance(control_plane_raw["observability"], dict):
                 control_plane_raw["observability"] = {}
             if "evidence_source" not in control_plane_raw or not isinstance(control_plane_raw["evidence_source"], dict):
                 control_plane_raw["evidence_source"] = {}
 
+            contradicted_fields = {c.target_field for c in sidecar_report.checks if c.status == "contradicts"}
+
             for field_name, field_val in validated_sidecar.model_dump(exclude_unset=True).items():
                 if field_val is not None:
-                    control_plane_raw[field_name] = field_val
                     cat = FIELD_TO_CATEGORY.get(field_name, field_name)
-                    control_plane_raw["observability"][cat] = "operator_supplied"
-                    control_plane_raw["evidence_source"][cat] = "operator_supplied"
+                    if field_name in contradicted_fields:
+                        control_plane_raw["observability"][cat] = "contradicted"
+                        control_plane_raw["evidence_source"][cat] = "contradicted"
+                    else:
+                        control_plane_raw[field_name] = field_val
+                        control_plane_raw["observability"][cat] = "operator_supplied"
+                        control_plane_raw["evidence_source"][cat] = "operator_supplied"
 
         if not control_plane_raw:
             control_plane = None
@@ -139,10 +149,13 @@ class AnalyzerProvider:
         data_plane_raw = analyze_data_plane(pcap_path)
         data_plane = DataPlaneData(**data_plane_raw).model_dump()
 
-        return {
+        result = {
             "control_plane": control_plane,
             "data_plane": data_plane,
         }
+        if sidecar_report:
+            result["sidecar_consistency"] = sidecar_report.model_dump()
+        return result
 
 
 def get_analyzer_provider() -> AnalyzerProvider:

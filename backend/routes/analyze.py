@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import uuid
 import aiofiles
+from typing import Optional, Dict, Any
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status, BackgroundTasks
 from backend.schemas.analysis import ErrorResponse, UploadResponse
 from backend.schemas.sidecar import IPsecSidecarConfig
