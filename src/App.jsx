@@ -16,6 +16,7 @@ import AiTelemetryCard from './components/dashboard/AiTelemetryCard.jsx';
 import LiveTelemetryPanel from './components/dashboard/LiveTelemetryPanel.jsx';
 import ThreatHeatmap from './components/dashboard/ThreatHeatmap.jsx';
 import RemediationModal from './components/dashboard/RemediationModal.jsx';
+import ExecutiveView from './components/dashboard/ExecutiveView.jsx';
 
 // ── Empty state shown before any PCAP is uploaded ──────────────────────────
 const EmptyState = ({ onUploadPcap, uploading }) => {
@@ -82,6 +83,7 @@ function MainSocApp() {
   const [uploadError, setUploadError] = useState(null);
   const [ingesting, setIngesting] = useState(false);
   const [remediationOpen, setRemediationOpen] = useState(false);
+  const [execMode, setExecMode] = useState(false);
 
   // Poll backend for job status
   useEffect(() => {
@@ -338,6 +340,25 @@ function MainSocApp() {
               <AnalysingState jobId={activeJobId} />
             ) : (
               <div className="space-y-6">
+                {/* Executive mode toggle */}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setExecMode((v) => !v)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-300 dark:border-[#2A2C34] text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#23252B]"
+                    aria-pressed={execMode}
+                  >
+                    {execMode ? 'Executive mode: ON' : 'Executive mode: OFF'}
+                  </button>
+                </div>
+                {execMode && isRealData && (
+                  <ExecutiveView
+                    data={data}
+                    findings={data.threat_matrix || []}
+                    executiveSummary={analysisResult?.remediation?.executive_summary}
+                    engineUsed={analysisResult?.remediation?.engine_used}
+                  />
+                )}
                 {/* Fallback Banner */}
                 {isRealData && !analysisResult?.control_plane && (
                   <div className="bg-amber-500/10 border-2 border-amber-500/40 text-amber-700 dark:text-amber-300 px-5 py-3.5 rounded-2xl text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
