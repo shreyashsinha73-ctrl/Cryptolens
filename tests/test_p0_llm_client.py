@@ -21,6 +21,7 @@ def sample_context():
     }
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_airgap_disabled_fallback_to_template(monkeypatch, sample_context):
     """When cloud LLM is disabled and Ollama is offline, fallback to deterministic template with reasons recorded."""
     monkeypatch.setenv("ENABLE_CLOUD_LLM", "false")
@@ -40,6 +41,7 @@ def test_airgap_disabled_fallback_to_template(monkeypatch, sample_context):
     assert "10.0.0.0/24" in res["swanctl_conf"]
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_ollama_success_no_fallback(monkeypatch, sample_context):
     """When Ollama succeeds with valid configuration, use Ollama without fallback."""
     monkeypatch.setenv("ENABLE_CLOUD_LLM", "false")
@@ -75,6 +77,7 @@ def test_ollama_success_no_fallback(monkeypatch, sample_context):
     assert res["config"]["encryption"] == "aes256gcm16"
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_gemini_success_when_cloud_enabled(monkeypatch, sample_context):
     """When cloud LLM is enabled and Ollama fails, fallback to Gemini."""
     monkeypatch.setenv("ENABLE_CLOUD_LLM", "true")
@@ -122,6 +125,7 @@ def test_gemini_success_when_cloud_enabled(monkeypatch, sample_context):
     assert "ollama_failed" in res["fallback_reason"]
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_bad_api_key_fallback(monkeypatch, sample_context):
     """When Gemini returns 401/403, fallback to deterministic template with auth_error reason."""
     monkeypatch.setenv("ENABLE_CLOUD_LLM", "true")
@@ -143,6 +147,7 @@ def test_bad_api_key_fallback(monkeypatch, sample_context):
     assert "auth_error" in res["fallback_reason"]
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_timeout_fallback(monkeypatch, sample_context):
     """When LLM requests time out, fallback to deterministic template with timeout reason."""
     monkeypatch.setenv("ENABLE_CLOUD_LLM", "true")
@@ -160,6 +165,7 @@ def test_timeout_fallback(monkeypatch, sample_context):
     assert "timeout" in res["fallback_reason"]
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_malformed_json_fallback(monkeypatch, sample_context):
     """When LLM returns malformed JSON, fallback to deterministic template with malformed_json reason."""
     monkeypatch.setenv("ENABLE_CLOUD_LLM", "false")

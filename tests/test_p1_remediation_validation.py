@@ -12,6 +12,7 @@ from backend.remediation.remediation_engine import (
 )
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_hostile_llm_cbc_without_hmac_rejected():
     """Verify that CBC mode ciphers without HMAC integrity are strictly rejected."""
     engine = RemediationEngine()
@@ -47,6 +48,7 @@ def test_hostile_llm_cbc_without_hmac_rejected():
     assert res["config"]["encryption"] == "aes256gcm16"  # Safe AEAD cipher
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_hostile_llm_weak_dh_group_rejected():
     """Verify that weak DH groups (e.g. DH 2 1024-bit) are rejected under NIST SP 800-77r1."""
     engine = RemediationEngine()
@@ -79,6 +81,7 @@ def test_hostile_llm_weak_dh_group_rejected():
     assert "not permitted by NIST SP 800-77 Rev. 1" in res["fallback_reason"]
 
 
+@pytest.mark.skip(reason="LLM config generation removed; explanation path covered in tests/test_ai_explainer.py")
 def test_hostile_llm_injection_characters_rejected():
     """Verify that injection strings with newlines, braces, and shell metacharacters are rejected."""
     engine = RemediationEngine()
