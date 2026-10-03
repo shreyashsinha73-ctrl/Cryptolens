@@ -18,6 +18,7 @@ import ThreatHeatmap from './components/dashboard/ThreatHeatmap.jsx';
 import RemediationModal from './components/dashboard/RemediationModal.jsx';
 import ExecutiveView from './components/dashboard/ExecutiveView.jsx';
 import AttackerImpactCards from './components/dashboard/AttackerImpactCards.jsx';
+import DemoGrid from './components/dashboard/DemoGrid.jsx';
 
 // ── Empty state shown before any PCAP is uploaded ──────────────────────────
 const EmptyState = ({ onUploadPcap, uploading }) => {
@@ -85,6 +86,7 @@ function MainSocApp() {
   const [ingesting, setIngesting] = useState(false);
   const [remediationOpen, setRemediationOpen] = useState(false);
   const [execMode, setExecMode] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
 
   // Poll backend for job status
   useEffect(() => {

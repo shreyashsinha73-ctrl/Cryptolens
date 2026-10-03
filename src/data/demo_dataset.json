@@ -1,0 +1,114 @@
+{
+  "generated_at": "2026-10-03 07:32:17 UTC",
+  "captures": [
+    {
+      "capture": "config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
+      "score": 35.0,
+      "risk_level": "UNVERIFIED",
+      "coverage": "3/8",
+      "score_headline": "35\u2013100, coverage 3/8",
+      "score_if_unobserved_fail": 35.0,
+      "score_if_unobserved_pass": 100.0,
+      "findings": []
+    },
+    {
+      "capture": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
+      "score": 30.0,
+      "risk_level": "UNVERIFIED",
+      "coverage": "3/8",
+      "score_headline": "30\u201395, coverage 3/8",
+      "score_if_unobserved_fail": 30.0,
+      "score_if_unobserved_pass": 95.0,
+      "findings": [
+        {
+          "severity": "MEDIUM",
+          "title": "Legacy DH Group"
+        }
+      ]
+    },
+    {
+      "capture": "config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap",
+      "score": 30.0,
+      "risk_level": "UNVERIFIED",
+      "coverage": "3/8",
+      "score_headline": "30\u201395, coverage 3/8",
+      "score_if_unobserved_fail": 30.0,
+      "score_if_unobserved_pass": 95.0,
+      "findings": [
+        {
+          "severity": "MEDIUM",
+          "title": "Legacy DH Group"
+        }
+      ]
+    },
+    {
+      "capture": "config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap",
+      "score": 20.0,
+      "risk_level": "UNVERIFIED",
+      "coverage": "3/8",
+      "score_headline": "20\u201385, coverage 3/8",
+      "score_if_unobserved_fail": 20.0,
+      "score_if_unobserved_pass": 85.0,
+      "findings": [
+        {
+          "severity": "MEDIUM",
+          "title": "Suboptimal Encryption Cipher"
+        },
+        {
+          "severity": "INFO",
+          "title": "Unrecognized integrity parameter"
+        },
+        {
+          "severity": "INFO",
+          "title": "Unrecognized key_exchange parameter"
+        }
+      ]
+    },
+    {
+      "capture": "config_05_transport_3des_sha1_dh2_pfsoff_all.pcap",
+      "score": 20.0,
+      "risk_level": "UNVERIFIED",
+      "coverage": "3/8",
+      "score_headline": "20\u201385, coverage 3/8",
+      "score_if_unobserved_fail": 20.0,
+      "score_if_unobserved_pass": 85.0,
+      "findings": [
+        {
+          "severity": "CRITICAL",
+          "title": "Critically Weak Encryption"
+        },
+        {
+          "severity": "INFO",
+          "title": "Unrecognized integrity parameter"
+        },
+        {
+          "severity": "CRITICAL",
+          "title": "Weak DH Group"
+        }
+      ]
+    },
+    {
+      "capture": "config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap",
+      "score": 20.0,
+      "risk_level": "UNVERIFIED",
+      "coverage": "3/8",
+      "score_headline": "20\u201385, coverage 3/8",
+      "score_if_unobserved_fail": 20.0,
+      "score_if_unobserved_pass": 85.0,
+      "findings": [
+        {
+          "severity": "CRITICAL",
+          "title": "Critically Weak Encryption"
+        },
+        {
+          "severity": "INFO",
+          "title": "Unrecognized integrity parameter"
+        },
+        {
+          "severity": "CRITICAL",
+          "title": "Weak DH Group"
+        }
+      ]
+    }
+  ]
+}
