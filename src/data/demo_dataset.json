@@ -1,114 +1,259 @@
 {
-  "generated_at": "2026-10-03 07:32:17 UTC",
+  "generated_at": "2026-10-03 07:46:10 UTC",
   "captures": [
     {
       "capture": "config_01_tunnel_aes256gcm_dh19_pfson_all.pcap",
-      "score": 35.0,
-      "risk_level": "UNVERIFIED",
-      "coverage": "3/8",
-      "score_headline": "35\u2013100, coverage 3/8",
-      "score_if_unobserved_fail": 35.0,
-      "score_if_unobserved_pass": 100.0,
-      "findings": []
+      "config_id": "config_01",
+      "wire_only": {
+        "score": 35.0,
+        "risk_level": "UNVERIFIED",
+        "coverage": "3/8",
+        "coverage_ratio": 0.375,
+        "score_headline": "35\u2013100, coverage 3/8",
+        "score_if_unobserved_fail": 35.0,
+        "score_if_unobserved_pass": 100.0,
+        "findings": []
+      },
+      "with_sidecar": {
+        "score": 100.0,
+        "risk_level": "LOW (operator-attested)",
+        "coverage": "8/8",
+        "coverage_ratio": 1.0,
+        "score_headline": "100/100, coverage 8/8",
+        "score_if_unobserved_fail": 100.0,
+        "score_if_unobserved_pass": 100.0,
+        "findings": []
+      }
     },
     {
       "capture": "config_02_tunnel_aes128gcm_dh14_pfson_all.pcap",
-      "score": 30.0,
-      "risk_level": "UNVERIFIED",
-      "coverage": "3/8",
-      "score_headline": "30\u201395, coverage 3/8",
-      "score_if_unobserved_fail": 30.0,
-      "score_if_unobserved_pass": 95.0,
-      "findings": [
-        {
-          "severity": "MEDIUM",
-          "title": "Legacy DH Group"
-        }
-      ]
+      "config_id": "config_02",
+      "wire_only": {
+        "score": 30.0,
+        "risk_level": "UNVERIFIED",
+        "coverage": "3/8",
+        "coverage_ratio": 0.375,
+        "score_headline": "30\u201395, coverage 3/8",
+        "score_if_unobserved_fail": 30.0,
+        "score_if_unobserved_pass": 95.0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Legacy DH Group"
+          }
+        ]
+      },
+      "with_sidecar": {
+        "score": 95.0,
+        "risk_level": "LOW (operator-attested)",
+        "coverage": "8/8",
+        "coverage_ratio": 1.0,
+        "score_headline": "95/95, coverage 8/8",
+        "score_if_unobserved_fail": 95.0,
+        "score_if_unobserved_pass": 95.0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Legacy DH Group"
+          }
+        ]
+      }
     },
     {
       "capture": "config_03_tunnel_aes256cbc_sha256_dh14_pfson_all.pcap",
-      "score": 30.0,
-      "risk_level": "UNVERIFIED",
-      "coverage": "3/8",
-      "score_headline": "30\u201395, coverage 3/8",
-      "score_if_unobserved_fail": 30.0,
-      "score_if_unobserved_pass": 95.0,
-      "findings": [
-        {
-          "severity": "MEDIUM",
-          "title": "Legacy DH Group"
-        }
-      ]
+      "config_id": "config_03",
+      "wire_only": {
+        "score": 30.0,
+        "risk_level": "UNVERIFIED",
+        "coverage": "3/8",
+        "coverage_ratio": 0.375,
+        "score_headline": "30\u201395, coverage 3/8",
+        "score_if_unobserved_fail": 30.0,
+        "score_if_unobserved_pass": 95.0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Legacy DH Group"
+          }
+        ]
+      },
+      "with_sidecar": {
+        "score": 90.0,
+        "risk_level": "LOW (operator-attested)",
+        "coverage": "8/8",
+        "coverage_ratio": 1.0,
+        "score_headline": "90/90, coverage 8/8",
+        "score_if_unobserved_fail": 90.0,
+        "score_if_unobserved_pass": 90.0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Legacy DH Group"
+          }
+        ]
+      }
     },
     {
       "capture": "config_04_transport_aes128cbc_sha1_dh5_pfsoff_all.pcap",
-      "score": 20.0,
-      "risk_level": "UNVERIFIED",
-      "coverage": "3/8",
-      "score_headline": "20\u201385, coverage 3/8",
-      "score_if_unobserved_fail": 20.0,
-      "score_if_unobserved_pass": 85.0,
-      "findings": [
-        {
-          "severity": "MEDIUM",
-          "title": "Suboptimal Encryption Cipher"
-        },
-        {
-          "severity": "INFO",
-          "title": "Unrecognized integrity parameter"
-        },
-        {
-          "severity": "INFO",
-          "title": "Unrecognized key_exchange parameter"
-        }
-      ]
+      "config_id": "config_04",
+      "wire_only": {
+        "score": 20.0,
+        "risk_level": "UNVERIFIED",
+        "coverage": "3/8",
+        "coverage_ratio": 0.375,
+        "score_headline": "20\u201385, coverage 3/8",
+        "score_if_unobserved_fail": 20.0,
+        "score_if_unobserved_pass": 85.0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Suboptimal Encryption Cipher"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized integrity parameter"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized key_exchange parameter"
+          }
+        ]
+      },
+      "with_sidecar": {
+        "score": 50.0,
+        "risk_level": "HIGH (operator-attested)",
+        "coverage": "8/8",
+        "coverage_ratio": 1.0,
+        "score_headline": "50/50, coverage 8/8",
+        "score_if_unobserved_fail": 50.0,
+        "score_if_unobserved_pass": 50.0,
+        "findings": [
+          {
+            "severity": "MEDIUM",
+            "title": "Suboptimal Encryption Cipher"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized integrity parameter"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized key_exchange parameter"
+          },
+          {
+            "severity": "HIGH",
+            "title": "PFS Disabled"
+          }
+        ]
+      }
     },
     {
       "capture": "config_05_transport_3des_sha1_dh2_pfsoff_all.pcap",
-      "score": 20.0,
-      "risk_level": "UNVERIFIED",
-      "coverage": "3/8",
-      "score_headline": "20\u201385, coverage 3/8",
-      "score_if_unobserved_fail": 20.0,
-      "score_if_unobserved_pass": 85.0,
-      "findings": [
-        {
-          "severity": "CRITICAL",
-          "title": "Critically Weak Encryption"
-        },
-        {
-          "severity": "INFO",
-          "title": "Unrecognized integrity parameter"
-        },
-        {
-          "severity": "CRITICAL",
-          "title": "Weak DH Group"
-        }
-      ]
+      "config_id": "config_05",
+      "wire_only": {
+        "score": 20.0,
+        "risk_level": "UNVERIFIED",
+        "coverage": "3/8",
+        "coverage_ratio": 0.375,
+        "score_headline": "20\u201385, coverage 3/8",
+        "score_if_unobserved_fail": 20.0,
+        "score_if_unobserved_pass": 85.0,
+        "findings": [
+          {
+            "severity": "CRITICAL",
+            "title": "Critically Weak Encryption"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized integrity parameter"
+          },
+          {
+            "severity": "CRITICAL",
+            "title": "Weak DH Group"
+          }
+        ]
+      },
+      "with_sidecar": {
+        "score": 35.0,
+        "risk_level": "CRITICAL (operator-attested)",
+        "coverage": "8/8",
+        "coverage_ratio": 1.0,
+        "score_headline": "35/35, coverage 8/8",
+        "score_if_unobserved_fail": 35.0,
+        "score_if_unobserved_pass": 35.0,
+        "findings": [
+          {
+            "severity": "CRITICAL",
+            "title": "Critically Weak Encryption"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized integrity parameter"
+          },
+          {
+            "severity": "CRITICAL",
+            "title": "Weak DH Group"
+          },
+          {
+            "severity": "HIGH",
+            "title": "PFS Disabled"
+          }
+        ]
+      }
     },
     {
       "capture": "config_06_tunnel_3des_sha1_dh2_pfsoff_all.pcap",
-      "score": 20.0,
-      "risk_level": "UNVERIFIED",
-      "coverage": "3/8",
-      "score_headline": "20\u201385, coverage 3/8",
-      "score_if_unobserved_fail": 20.0,
-      "score_if_unobserved_pass": 85.0,
-      "findings": [
-        {
-          "severity": "CRITICAL",
-          "title": "Critically Weak Encryption"
-        },
-        {
-          "severity": "INFO",
-          "title": "Unrecognized integrity parameter"
-        },
-        {
-          "severity": "CRITICAL",
-          "title": "Weak DH Group"
-        }
-      ]
+      "config_id": "config_06",
+      "wire_only": {
+        "score": 20.0,
+        "risk_level": "UNVERIFIED",
+        "coverage": "3/8",
+        "coverage_ratio": 0.375,
+        "score_headline": "20\u201385, coverage 3/8",
+        "score_if_unobserved_fail": 20.0,
+        "score_if_unobserved_pass": 85.0,
+        "findings": [
+          {
+            "severity": "CRITICAL",
+            "title": "Critically Weak Encryption"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized integrity parameter"
+          },
+          {
+            "severity": "CRITICAL",
+            "title": "Weak DH Group"
+          }
+        ]
+      },
+      "with_sidecar": {
+        "score": 35.0,
+        "risk_level": "CRITICAL (operator-attested)",
+        "coverage": "8/8",
+        "coverage_ratio": 1.0,
+        "score_headline": "35/35, coverage 8/8",
+        "score_if_unobserved_fail": 35.0,
+        "score_if_unobserved_pass": 35.0,
+        "findings": [
+          {
+            "severity": "CRITICAL",
+            "title": "Critically Weak Encryption"
+          },
+          {
+            "severity": "INFO",
+            "title": "Unrecognized integrity parameter"
+          },
+          {
+            "severity": "CRITICAL",
+            "title": "Weak DH Group"
+          },
+          {
+            "severity": "HIGH",
+            "title": "PFS Disabled"
+          }
+        ]
+      }
     }
   ]
 }
