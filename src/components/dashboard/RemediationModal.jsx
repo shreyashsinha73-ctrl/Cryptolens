@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import BeforeAfterDiff from './BeforeAfterDiff.jsx';
 import { Skeleton } from '../common/SeverityChip.jsx';
 import Badge from '../common/Badge.jsx';
+
+const ORDER = { high: 0, medium: 1, low: 2 };
+const PRIORITY_STYLE = {
+  high: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30',
+  medium: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30',
+  low: 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
+};
 
 export default function RemediationModal({ jobId, isOpen, onClose }) {
   const [remediation, setRemediation] = useState(null);
@@ -9,6 +16,21 @@ export default function RemediationModal({ jobId, isOpen, onClose }) {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('swanctl');
   const [copied, setCopied] = useState(false);
+  const [advice, setAdvice] = useState(null);
+  const [adviceLoading, setAdviceLoading] = useState(false);
+  const [adviceError, setAdviceError] = useState(null);
+
+  const loadAdvice = useCallback(() => {
+    if (!jobId) return;
+    setAdviceLoading(true);
+    setAdviceError(null);
+    fetch(`/api/v1/remediate/${jobId}/advice`, { method: 'POST' })
+      .then((r) => { if (!r.ok) throw new Error(`Could not get advice (${r.status})`); return r.json(); })
+      .then((d) => { setAdvice(d); setAdviceLoading(false); })
+      .catch((e) => { setAdviceError(e.message); setAdviceLoading(false); });
+  }, [jobId]);
+
+  useEffect(() => { if (isOpen) loadAdvice(); }, [isOpen, loadAdvice]);
 
   useEffect(() => {
     if (!isOpen || !jobId) return;
@@ -63,6 +85,42 @@ export default function RemediationModal({ jobId, isOpen, onClose }) {
 
         {/* Body */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
+          {/* Plain-language advice (Gemini or rules) */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-bold text-gray-900 dark:text-white">What to do to improve this network</span>
+              {advice?.source && (
+                <Badge variant="completed" label={`Source: ${advice.source === 'gemini' ? `Gemini (${advice.model})` : 'Rules-based'}`} size="sm" />
+              )}
+            </div>
+            {adviceLoading ? (
+              <div className="text-sm text-gray-400"><Skeleton lines={4} />Getting advice...</div>
+            ) : adviceError ? (
+              <div className="space-y-2">
+                <p className="text-xs text-rose-500">{adviceError}</p>
+                <button type="button" onClick={loadAdvice} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold cursor-pointer">Retry</button>
+              </div>
+            ) : advice?.hardening_advice ? (
+              <>
+                <p className="text-xs text-gray-700 dark:text-gray-200 leading-relaxed">{advice.hardening_advice.summary}</p>
+                {[...advice.hardening_advice.points].sort((a, b) => (ORDER[a.priority] ?? 3) - (ORDER[b.priority] ?? 3)).map((p, i) => (
+                  <div key={i} className="rounded-xl border border-gray-200 dark:border-[#2C384B] p-3 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${PRIORITY_STYLE[p.priority] || PRIORITY_STYLE.low}`}>{p.priority}</span>
+                      <span className="text-xs font-bold text-gray-900 dark:text-white">{p.title}</span>
+                    </div>
+                    <p className="text-xs text-gray-700 dark:text-gray-300"><strong>What we saw: </strong>{p.problem}</p>
+                    <p className="text-xs text-gray-700 dark:text-gray-300"><strong>Why it matters: </strong>{p.why_it_matters}</p>
+                    <p className="text-xs text-gray-700 dark:text-gray-300"><strong>How to fix: </strong>{p.how_to_fix}</p>
+                  </div>
+                ))}
+                {advice.hardening_advice.not_observable_note && (
+                  <p className="text-[11px] italic text-gray-500 dark:text-gray-400">Not observable: {advice.hardening_advice.not_observable_note}</p>
+                )}
+              </>
+            ) : null}
+          </div>
+
           {loading ? (
             <div className="py-6 text-center text-sm text-gray-400">
               <Skeleton lines={5} />

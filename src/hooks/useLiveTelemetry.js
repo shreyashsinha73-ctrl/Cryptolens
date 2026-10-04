@@ -32,6 +32,7 @@ let state = {
   streamCompleted: false,
   completionMessage: null,
   streamId: null,
+  streamSource: null,
   wireEvents: [],
   espEvents: [],
   ikeEvents: [],
@@ -106,6 +107,7 @@ function resetStreamState(newStreamId = null) {
   pendingScore = null;
   state.streamId = newStreamId;
   state.isStreaming = Boolean(newStreamId);
+  state.streamSource = null;
   state.streamCompleted = false;
   state.completionMessage = null;
   state.wireEvents = [];
@@ -183,7 +185,9 @@ function initWebSocket() {
             if (sharedWs && sharedWs.readyState === WebSocket.OPEN) {
               try {
                 sharedWs.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-              } catch (_) {}
+              } catch {
+                // Heartbeat send failed, ignore
+              }
             }
             break;
           }
@@ -192,7 +196,9 @@ function initWebSocket() {
             break;
 
           case 'stream_started': {
+            const preservedSource = data.mode === 'live' ? 'live_sniff' : data.mode === 'simulation' ? 'simulate' : (state.streamSource || (data.job_id ? 'simulate' : 'live_sniff'));
             resetStreamState(data.stream_id || null);
+            state.streamSource = preservedSource;
             state.isStreaming = true;
             notifySubscribers();
             break;
@@ -227,6 +233,8 @@ function initWebSocket() {
           }
 
           case 'anomaly_alert': {
+            // Ignore alerts until this client has seen stream_started (no stale/replayed alerts).
+            if (!state.isStreaming) break;
             pendingAlerts.push(data);
             scheduleFlush();
             break;
@@ -268,7 +276,8 @@ function initWebSocket() {
     sharedWs.onerror = () => {
       if (sharedWs) sharedWs.close();
     };
-  } catch (e) {
+  } catch (err) {
+    console.warn('[LiveTelemetry] WebSocket error:', err);
     scheduleReconnect();
   }
 }
@@ -303,10 +312,13 @@ export function useLiveTelemetry() {
   const startCapture = async (iface = 'any') => {
     try {
       clearWire();
+      state.streamSource = 'live_sniff';
+      notifySubscribers();
       const res = await fetch(`/api/v1/live/start?interface=${iface}`, { method: 'POST' });
       const data = await res.json();
       if (data.status === 'started') {
         state.isStreaming = true;
+        state.streamSource = 'live_sniff';
         if (data.stream_id) state.streamId = data.stream_id;
         notifySubscribers();
       }
@@ -319,6 +331,8 @@ export function useLiveTelemetry() {
   const simulateCapture = async (jobId = null) => {
     try {
       clearWire();
+      state.streamSource = 'simulate';
+      notifySubscribers();
       let url = '/api/v1/live/simulate';
       if (jobId) {
         url += `?job_id=${encodeURIComponent(jobId)}`;
@@ -327,6 +341,7 @@ export function useLiveTelemetry() {
       const data = await res.json();
       if (data.status === 'simulation_started') {
         state.isStreaming = true;
+        state.streamSource = 'simulate';
         if (data.stream_id) state.streamId = data.stream_id;
         notifySubscribers();
       }
@@ -366,12 +381,25 @@ export function useLiveTelemetry() {
     }
   };
 
+  const analyzeCapture = async () => {
+    try {
+      const res = await fetch('/api/v1/live/analyze', { method: 'POST' });
+      const data = await res.json();
+      state.isStreaming = false;
+      notifySubscribers();
+      return data;
+    } catch (e) {
+      return { status: 'error', message: e.message };
+    }
+  };
+
   return {
     isConnected: localState.isConnected,
     isStreaming: localState.isStreaming,
     streamCompleted: localState.streamCompleted,
     completionMessage: localState.completionMessage,
     streamId: localState.streamId,
+    streamSource: localState.streamSource,
     wireEvents: localState.wireEvents,
     espEvents: localState.espEvents,
     ikeEvents: localState.ikeEvents,
@@ -381,6 +409,7 @@ export function useLiveTelemetry() {
     simulateCapture,
     injectTraffic,
     stopCapture,
+    analyzeCapture,
     clearWire,
   };
 }

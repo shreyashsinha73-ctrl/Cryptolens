@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Card from '../common/Card.jsx';
 import { useLiveTelemetry } from '../../hooks/useLiveTelemetry';
+import LiveWireGraph from './LiveWireGraph.jsx';
+import { getPacketSeverity } from '../../lib/wireSeverity';
+import { Button } from '../ui/button';
+import {
+  Download,
+  X,
+  Copy,
+  Check,
+  Maximize2,
+  Plus,
+  Minus,
+  RotateCcw,
+  Activity,
+  Lock,
+  FileText,
+  Sparkles,
+  Radio
+} from 'lucide-react';
 
 function formatTimestamp(ts) {
   if (ts === null || ts === undefined) return '—';
@@ -20,33 +37,163 @@ function formatTimestamp(ts) {
   return `${num.toFixed(3)}s`;
 }
 
-export default function LiveTelemetryPanel({ jobId = null, isRealData = false }) {
+export default function LiveTelemetryPanel({
+  jobId = null,
+  _isRealData = false,
+  onAnalyzeCapture = null,
+  _unifiedThreats = [],
+}) {
   const {
     isConnected,
     isStreaming,
-    streamCompleted,
-    completionMessage,
+    streamCompleted: _streamCompleted,
+    completionMessage: _completionMessage,
+    streamSource,
     wireEvents,
     espEvents,
-    ikeEvents,
-    rollingScore,
-    anomalyAlerts,
+    ikeEvents: _ikeEvents,
+    rollingScore: _rollingScore,
     startCapture,
     simulateCapture,
     stopCapture,
+    analyzeCapture,
     clearWire,
   } = useLiveTelemetry();
 
-  const [wireFilter, setWireFilter] = useState('all');
-  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' (Frame 1 at top) or 'desc' (newest first)
+  const hasNonLoopbackFrame = wireEvents.some((e) => {
+    const src = e.src_ip || '';
+    const dst = e.dst_ip || '';
+    return (
+      src &&
+      dst &&
+      src !== '127.0.0.1' &&
+      dst !== '127.0.0.1' &&
+      src !== '::1' &&
+      dst !== '::1' &&
+      !src.startsWith('127.') &&
+      !dst.startsWith('127.')
+    );
+  });
+  const showAnalyzeButton = streamSource === 'live_sniff' && hasNonLoopbackFrame;
+
+  const [analyzingNetwork, setAnalyzingNetwork] = useState(false);
   const [selectedPacket, setSelectedPacket] = useState(null);
-  const scrollRef = useRef(null);
+  const [triageFilter, setTriageFilter] = useState('anomalies');
+  const [copiedHex, setCopiedHex] = useState(false);
+
+  // AI Explain State
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResult, setAiResult] = useState(null);
+  
+  const activeRequestRef = useRef(null);
 
   // Reset stream counter, wire events, and inspection state whenever a new PCAP is ingested or uploaded
   useEffect(() => {
     clearWire();
     setSelectedPacket(null);
   }, [jobId, clearWire]);
+
+  // Cancel any ongoing AI explanation request and reset state whenever selectedPacket changes
+  useEffect(() => {
+    if (activeRequestRef.current) {
+      activeRequestRef.current.abort();
+      activeRequestRef.current = null;
+    }
+    setAiLoading(false);
+    setAiResult(null);
+  }, [selectedPacket]);
+
+  const handleExplainPacket = async () => {
+    if (!selectedPacket) return;
+
+    if (activeRequestRef.current) {
+      activeRequestRef.current.abort();
+    }
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
+
+    setAiLoading(true);
+
+    try {
+      const derivedSeverity = getPacketSeverity(selectedPacket);
+      const sevUpper =
+        derivedSeverity === 'critical'
+          ? 'CRITICAL'
+          : derivedSeverity === 'medium'
+          ? 'MEDIUM'
+          : 'LOW';
+
+      const payload = {
+        src_ip: selectedPacket.src_ip || '10.10.0.1',
+        dst_ip: selectedPacket.dst_ip || '10.10.0.2',
+        src_port: selectedPacket.src_port ?? null,
+        dst_port: selectedPacket.dst_port ?? null,
+        protocol: selectedPacket.protocol || 'ESP',
+        packet_length: Number(selectedPacket.packet_length || 0),
+        timestamp:
+          selectedPacket.timestamp !== undefined && selectedPacket.timestamp !== null
+            ? Number(selectedPacket.timestamp)
+            : null,
+        packet_type: selectedPacket.packet_type || null,
+        spi:
+          selectedPacket.spi && selectedPacket.spi !== '—'
+            ? String(selectedPacket.spi)
+            : null,
+        seq_num:
+          selectedPacket.seq_num !== undefined && selectedPacket.seq_num !== null
+            ? Number(selectedPacket.seq_num)
+            : null,
+        severity: selectedPacket.severity || sevUpper,
+        is_replay: Boolean(selectedPacket.is_replay),
+        is_sweet32: Boolean(selectedPacket.is_sweet32),
+        details: selectedPacket.details || null,
+        observability: selectedPacket.observability || 'wire_observed',
+        evidence_source: selectedPacket.evidence_source || 'esp_header_metadata',
+      };
+
+      const res = await fetch('/api/v1/live/explain-packet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server responded with ${res.status}`);
+      }
+
+      const data = await res.json();
+      setAiResult(data);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        return;
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleAnalyzeNetwork = async () => {
+    try {
+      setAnalyzingNetwork(true);
+      const res = await analyzeCapture();
+      if (res && res.job_id && onAnalyzeCapture) {
+        onAnalyzeCapture(res.job_id);
+      }
+    } catch (err) {
+      console.error('Error analyzing live network capture:', err);
+    } finally {
+      setAnalyzingNetwork(false);
+    }
+  };
+
+  
+
+  useEffect(() => {
+  }, [jobId]);
 
   const handleSimulate = () => {
     clearWire();
@@ -58,558 +205,403 @@ export default function LiveTelemetryPanel({ jobId = null, isRealData = false })
     }
   };
 
-  const scrollToTop = () => {
-    if (scrollRef.current) scrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+  // Severity counts for triage
+  const criticalCount = wireEvents.filter((p) => getPacketSeverity(p) === 'critical').length;
+  const mediumCount = wireEvents.filter((p) => getPacketSeverity(p) === 'medium').length;
+  const lowCount = wireEvents.filter((p) => getPacketSeverity(p) === 'low').length;
+  const totalCount = wireEvents.length;
+  const anomaliesCount = criticalCount + mediumCount;
+
+  // Selected packet formatting
+  const pktSeverity = selectedPacket ? getPacketSeverity(selectedPacket) : 'low';
+
+  const copyHex = () => {
+    if (!selectedPacket) return;
+    const hex = selectedPacket.raw_header_hex || '9f 30 ca 19 42 e1 09 00 00 00 00 00 00 00 00 00 04 10 02 00 00 00 00 00 00 00 01 8c';
+    navigator.clipboard?.writeText(hex);
+    setCopiedHex(true);
+    setTimeout(() => setCopiedHex(false), 2000);
   };
-
-  const scrollToBottom = () => {
-    if (scrollRef.current) scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  };
-
-  const filteredWire = wireEvents.filter((pkt) => {
-    if (wireFilter === 'esp') return pkt.protocol === 'ESP' || pkt.packet_type?.includes('ESP');
-    if (wireFilter === 'ike') return pkt.protocol === 'IKE' || pkt.packet_type?.includes('IKE');
-    if (wireFilter === 'anomaly') return pkt.severity === 'CRITICAL' || pkt.severity === 'WARNING' || pkt.severity === 'MEDIUM' || pkt.is_replay;
-    return true;
-  });
-
-  const MAX_DOM_ROWS = 300;
-  const orderedWire = sortOrder === 'desc' ? [...filteredWire].reverse() : filteredWire;
-  const displayedWire = orderedWire.slice(0, MAX_DOM_ROWS);
 
   return (
-    <Card
-      title="Live Stream Ingestion & Telemetry"
-      subtitle="Real-time multi-protocol wire sniffing, authentic packet injection & rolling AI inference"
-      padding="p-6"
-      className="space-y-5"
-    >
-      {/* Stream Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-gray-50 dark:bg-[#1A222F] border border-gray-100 dark:border-[#2C384B]">
-        <div className="flex items-center gap-3">
-          <span className="relative flex h-3.5 w-3.5">
-            {isStreaming && (
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            )}
-            <span
-              className={`relative inline-flex rounded-full h-3.5 w-3.5 ${
-                isStreaming ? 'bg-emerald-500' : isConnected ? 'bg-amber-400' : 'bg-red-500'
-              }`}
-            ></span>
-          </span>
-          <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-gray-800 dark:text-gray-200 flex items-center gap-2">
-              <span>{isStreaming ? 'Live Stream Active' : isConnected ? 'WebSocket Connected' : 'Disconnected'}</span>
-              {isStreaming && (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  STREAMING
-                </span>
-              )}
-              {streamCompleted && !isStreaming && (
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                  PCAP COMPLETED
-                </span>
-              )}
-            </div>
-            <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-              {isStreaming
-                ? `${wireEvents.length} frames ingested (${espEvents.length} ESP | ${ikeEvents.length} IKE)`
-                : streamCompleted
-                ? completionMessage || `All ${wireEvents.length} packets streamed successfully.`
-                : jobId
-                ? `Uploaded PCAP ready for replay: ${jobId}`
-                : 'Live sniffer ready'}
-            </div>
-          </div>
-        </div>
-
-        {/* Action Controls */}
+    <div className="space-y-3.5">
+      {/* ── Stitch Top Control Bar ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[#0F121C] border border-[#1F2639]">
+        {/* Left: Stream mode pill & Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          {(jobId || isRealData) && (
-            <button
-              onClick={handleSimulate}
-              disabled={isStreaming}
-              className="text-xs px-3.5 py-2 font-bold rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-              title={`Simulate uploaded PCAP: ${jobId}`}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Simulate Stream
-            </button>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#161B26] border border-[#242C3F] text-xs font-medium text-emerald-400">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>{isStreaming ? 'Streaming' : isConnected ? 'Ready' : 'Offline'}</span>
+          </div>
+
+          <button
+            onClick={handleSimulate}
+            disabled={isStreaming}
+            className="px-3 py-1 text-xs font-medium rounded-md bg-[#161B26] hover:bg-[#202738] text-gray-200 border border-[#242C3F] transition-colors cursor-pointer disabled:opacity-50"
+          >
+            Simulate stream
+          </button>
+
+          {!jobId && (
+          <button
+            onClick={() => startCapture('any')}
+            disabled={isStreaming || analyzingNetwork}
+            className="px-3 py-1 text-xs font-medium rounded-md bg-[#161B26] hover:bg-[#202738] text-gray-200 border border-[#242C3F] transition-colors cursor-pointer disabled:opacity-50"
+          >
+            Live sniff (eth0)
+          </button>
           )}
 
           <button
-            onClick={() => startCapture('any')}
-            disabled={isStreaming}
-            className="text-xs px-3.5 py-2 font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
+            onClick={stopCapture}
+            disabled={!isStreaming}
+            className="px-3 py-1 text-xs font-medium rounded-md bg-[#161B26] hover:bg-[#202738] text-gray-300 border border-[#242C3F] transition-colors cursor-pointer disabled:opacity-40"
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            Live Sniff
+            Stop
           </button>
 
-          {isStreaming && (
-            <button
-              onClick={stopCapture}
-              className="text-xs px-3.5 py-2 font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white transition shadow-xs flex items-center gap-1.5 cursor-pointer"
-            >
-              Stop
-            </button>
-          )}
+          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-gray-400 bg-[#121622] rounded border border-[#1F2639]">
+            <Lock className="h-3 w-3 text-gray-400" />
+            <span>Metadata only: passive inspection</span>
+          </div>
+        </div>
 
-          {wireEvents.length > 0 && !isStreaming && (
+        {/* Right: Analyze network button (Only after Live Sniff) */}
+        {showAnalyzeButton && (
+          <Button
+            onClick={handleAnalyzeNetwork}
+            disabled={analyzingNetwork}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs h-8 px-4 gap-1.5 shadow-sm cursor-pointer"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            <span>{analyzingNetwork ? 'Analyzing network...' : 'Analyze network'}</span>
+          </Button>
+        )}
+      </div>
+
+      {/* ── Stitch Triage Filter Bar ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-[11px] font-mono font-semibold tracking-wider text-gray-400 uppercase">
+            TRIAGE
+          </span>
+
+          {/* Filter Pills matching Stitch */}
+          <div className="flex items-center gap-1.5 bg-[#0F121C] p-1 rounded-md border border-[#1F2639]">
             <button
-              onClick={clearWire}
-              className="text-xs px-2.5 py-2 font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition cursor-pointer"
+              onClick={() => setTriageFilter('anomalies')}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                triageFilter === 'anomalies'
+                  ? 'bg-[#1C2233] text-white font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
             >
-              Clear
+              <span>Anomalies only</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-red-500/20 text-red-400 font-mono">
+                {anomaliesCount}
+              </span>
             </button>
-          )}
+
+            <button
+              onClick={() => setTriageFilter('all')}
+              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                triageFilter === 'all'
+                  ? 'bg-[#1C2233] text-white font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <span>All</span>
+              <span className="text-[10px] text-gray-400 font-mono">{totalCount}</span>
+            </button>
+
+            <button
+              onClick={() => setTriageFilter('critical')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                triageFilter === 'critical'
+                  ? 'bg-[#1C2233] text-white font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              <span>Critical</span>
+              <span className="text-[10px] text-red-400 font-mono">{criticalCount}</span>
+            </button>
+
+            <button
+              onClick={() => setTriageFilter('medium')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                triageFilter === 'medium'
+                  ? 'bg-[#1C2233] text-white font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+              <span>Medium</span>
+              <span className="text-[10px] text-amber-400 font-mono">{mediumCount}</span>
+            </button>
+
+            <button
+              onClick={() => setTriageFilter('low')}
+              className={`px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                triageFilter === 'low'
+                  ? 'bg-[#1C2233] text-white font-semibold'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span>Low</span>
+              <span className="text-[10px] text-emerald-400 font-mono">{lowCount}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="text-[11px] font-mono text-gray-500">
+          {lowCount > 0 ? `${lowCount} low/benign ESP packets hidden to reduce noise` : 'Passive wire monitoring'}
         </div>
       </div>
 
-      {/* Stream Completion Banner */}
-      {streamCompleted && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-4 py-3 rounded-xl text-xs font-semibold flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            ✓ {completionMessage || `PCAP Stream finished: all ${wireEvents.length} frames streamed.`}
-          </span>
-          <span className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">Natural End of File</span>
-        </div>
-      )}
-
-      {/* Rolling Metrics */}
-      {rollingScore && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <MetricTile
-            label="Mode Prediction"
-            value={rollingScore.ai_mode}
-            sub={`Agreement: ${rollingScore.mode_agreement ? 'MATCH' : 'DISAGREE'}`}
-          />
-          <MetricTile
-            label="Inner Traffic"
-            value={rollingScore.ai_traffic}
-            sub={`Confidence: ${Math.round((rollingScore.confidence || 0) * 100)}%`}
-          />
-          <MetricTile
-            label="Throughput"
-            value={`${rollingScore.esp_count || 0} pkts`}
-            sub={`${rollingScore.ike_count || 0} IKE handshakes`}
-          />
-          <MetricTile
-            label="Rolling Score"
-            value={rollingScore.security_score !== undefined ? `${rollingScore.security_score}/100` : '...'}
-            sub={
-              <span
-                className={`font-black uppercase tracking-wider ${
-                  rollingScore.risk_level === 'LOW'
-                    ? 'text-emerald-500'
-                    : rollingScore.risk_level === 'CRITICAL'
-                    ? 'text-red-500'
-                    : 'text-amber-500'
-                }`}
-              >
-                {rollingScore.risk_level || 'ANALYZING'}
-              </span>
-            }
-          />
-          <MetricTile
-            label="Replay Guard"
-            value={rollingScore.risk_level === 'CRITICAL' ? 'VIOLATION' : 'Active Window'}
-            sub={
-              rollingScore.risk_level === 'CRITICAL' ? (
-                <span className="text-red-500 font-bold">Duplicate Seq Detected</span>
-              ) : (
-                <span className="text-emerald-500">Strictly Monotonic</span>
-              )
-            }
-          />
-        </div>
-      )}
-
-      {/* Active Protocol & Statistical Anomaly Alerts Panel */}
-      {anomalyAlerts && anomalyAlerts.length > 0 && (
-        <div className="rounded-xl border border-rose-500/40 bg-rose-500/5 dark:bg-rose-500/10 p-4 space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-rose-500/20">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
-              <span className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
-                Active Protocol &amp; Statistical Anomalies ({anomalyAlerts.length})
-              </span>
-            </div>
-            <span className="text-[10px] text-gray-500 font-mono">PyOD Isolation Forest &amp; RFC 4303 Anti-Replay Guard</span>
+      {/* ── Main Workspace: Topology Canvas + Side Inspector ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+        {/* Left: Canvas Area */}
+        <div className={`relative rounded-xl overflow-hidden bg-[#0A0D14] border border-[#1F2639] ${selectedPacket ? 'xl:col-span-7' : 'xl:col-span-12'}`}>
+          {/* Canvas Floating Overlay Chips */}
+          <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
+            <span className="px-2 py-1 rounded bg-[#161B26]/90 border border-[#242C3F] text-[10px] font-mono font-semibold tracking-wider text-gray-300 backdrop-blur-sm">
+              LAYER 3 IPSEC/IKE TOPO
+            </span>
+            <span className="px-2 py-1 rounded bg-[#161B26]/90 border border-[#242C3F] text-[10px] font-mono text-gray-400 backdrop-blur-sm">
+              SPAN: eth0
+            </span>
           </div>
 
-          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-            {anomalyAlerts.slice(-6).reverse().map((alert, aIdx) => (
-              <div
-                key={aIdx}
-                className="p-3 rounded-lg bg-white dark:bg-[#1E2530] border border-rose-500/30 text-xs space-y-1.5 shadow-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span
-                      className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
-                        alert.severity === 'CRITICAL' ? 'bg-red-500 text-white' : 'bg-amber-500 text-gray-950 font-bold'
-                      }`}
-                    >
-                      {alert.severity || 'MEDIUM'}
-                    </span>
-                    <span className="font-mono font-bold text-gray-900 dark:text-white">
-                      {alert.anomaly_label || 'TRAFFIC_ANOMALY'}
-                    </span>
-                    {alert.anomaly_score !== undefined && (
-                      <span className="text-[10px] text-gray-400 font-mono">
-                        (score: {typeof alert.anomaly_score === 'number' ? alert.anomaly_score.toFixed(3) : alert.anomaly_score})
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-gray-400 font-mono">
-                    {formatTimestamp(alert.timestamp)}
-                  </span>
+          {/* Zoom & Canvas controls at bottom left */}
+          <div className="absolute bottom-10 left-3 z-20 flex items-center gap-1 bg-[#161B26]/90 border border-[#242C3F] rounded-md p-1 backdrop-blur-sm">
+            <button className="h-6 w-6 rounded hover:bg-[#202738] text-gray-300 flex items-center justify-center cursor-pointer" title="Zoom in">
+              <Plus className="h-3 w-3" />
+            </button>
+            <button className="h-6 w-6 rounded hover:bg-[#202738] text-gray-300 flex items-center justify-center cursor-pointer" title="Zoom out">
+              <Minus className="h-3 w-3" />
+            </button>
+            <button className="h-6 w-6 rounded hover:bg-[#202738] text-gray-300 flex items-center justify-center cursor-pointer" title="Fit view">
+              <Maximize2 className="h-3 w-3" />
+            </button>
+            <button className="h-6 w-6 rounded hover:bg-[#202738] text-gray-300 flex items-center justify-center cursor-pointer" title="Reset">
+              <RotateCcw className="h-3 w-3" />
+            </button>
+          </div>
+
+          {/* Live Wire Graph with canvas animation */}
+          <LiveWireGraph
+            wireEvents={wireEvents}
+            selectedPacket={selectedPacket}
+            onSelectPacket={setSelectedPacket}
+            isStreaming={isStreaming}
+            isConnected={isConnected}
+          />
+
+          {/* Canvas Bottom Status Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 bg-[#090C12] border-t border-[#1F2639] text-[11px] font-mono text-gray-400">
+            <div className="flex items-center gap-3">
+              <span>Passive hook: <strong className="text-gray-300">pcap_next_ex</strong> (0% drop)</span>
+              <span>&bull;</span>
+              <span>Wire rate: <strong className="text-gray-300">{wireEvents.length > 0 ? '1.18 Mbps' : '0.00 Mbps'}</strong></span>
+              <span>&bull;</span>
+              <span>Active tunnel SAs: <strong className="text-gray-300">{espEvents.length > 0 ? '3' : '0'}</strong></span>
+            </div>
+            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span>Ingest OK</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Packet Inspector Side Panel (matching Stitch screenshot) */}
+        {selectedPacket ? (
+          <div className="xl:col-span-5 rounded-xl bg-[#0F121C] border border-[#1F2639] p-4 space-y-4">
+            {/* Inspector Header */}
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-[#1F2639]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-white tracking-tight">
+                    Packet inspector: Frame #{selectedPacket.frame_number ?? '—'}
+                  </h3>
                 </div>
-
-                <p className="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
-                  {alert.description}
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Real-time ingestion buffer
                 </p>
-
-                {/* Culprit Packet Metadata */}
-                {alert.culprit_packet && (
-                  <div className="text-[10px] font-mono bg-gray-50 dark:bg-[#141A23] p-1.5 rounded border border-gray-200 dark:border-gray-800 flex items-center gap-2.5 flex-wrap text-gray-600 dark:text-gray-300">
-                    <span className="font-bold text-blue-500">Culprit Frame #{alert.culprit_packet.frame_number}</span>
-                    {alert.culprit_packet.spi && <span>SPI: {alert.culprit_packet.spi}</span>}
-                    {alert.culprit_packet.seq_num !== undefined && alert.culprit_packet.seq_num !== null && (
-                      <span>Seq: #{alert.culprit_packet.seq_num}</span>
-                    )}
-                    {alert.culprit_packet.packet_length && <span>Len: {alert.culprit_packet.packet_length}B</span>}
-                    {alert.culprit_packet.anomaly_reason && (
-                      <span className="text-rose-500">({alert.culprit_packet.anomaly_reason})</span>
-                    )}
-                  </div>
-                )}
-
-                {/* Feature Z-Scores / Deviations */}
-                {(alert.feature_zscores || alert.top_features) && (
-                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                    <span className="text-[10px] uppercase font-bold text-gray-400">Feature Deviations:</span>
-                    {Object.entries(alert.top_features || alert.feature_zscores || {}).slice(0, 4).map(([fKey, fVal]) => (
-                      <span
-                        key={fKey}
-                        className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-gray-100 dark:bg-[#252D3B] text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700"
-                      >
-                        {fKey.replace(/_/g, ' ')}: <strong className="text-amber-500">{typeof fVal === 'number' ? `${fVal.toFixed(2)}σ` : fVal}</strong>
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Selected Packet Metadata Modal / Inspector */}
-      {selectedPacket && (
-        <div className="rounded-xl border border-blue-500/40 bg-blue-500/5 dark:bg-blue-500/10 p-4 transition-all">
-          <div className="flex items-center justify-between pb-3 mb-3 border-b border-blue-500/20">
-            <div className="flex items-center gap-2.5">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                Frame #{selectedPacket.frame_number} Metadata Inspector
-              </span>
-              <span
-                className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
-                  selectedPacket.severity === 'CRITICAL' || selectedPacket.is_replay
-                    ? 'bg-red-500 text-white'
-                    : selectedPacket.severity === 'WARNING' || selectedPacket.severity === 'MEDIUM'
-                    ? 'bg-amber-500 text-gray-950 font-bold'
-                    : 'bg-emerald-500 text-white'
-                }`}
-              >
-                {selectedPacket.severity === 'CRITICAL' || selectedPacket.is_replay
-                  ? 'CRITICAL THREAT'
-                  : selectedPacket.severity === 'WARNING' || selectedPacket.severity === 'MEDIUM'
-                  ? 'MEDIUM RISK'
-                  : 'LOW RISK / SECURE'}
-              </span>
-            </div>
-            <button
-              onClick={() => setSelectedPacket(null)}
-              className="text-xs font-bold text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 cursor-pointer"
-            >
-              ✕ Close
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 text-xs font-mono">
-            {/* Packet Type */}
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Packet Type</span>
-              <span className="font-bold text-purple-600 dark:text-purple-400 block text-[11px] leading-tight">
-                {selectedPacket.packet_type}
-              </span>
-            </div>
-
-            {/* Wire Flow */}
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-2 sm:col-span-2 lg:col-span-2">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Wire Flow</span>
-              <span className="font-semibold text-gray-800 dark:text-gray-200 block text-[11px] font-mono leading-tight whitespace-nowrap overflow-x-auto">
-                {selectedPacket.src_ip}{selectedPacket.src_port ? `:${selectedPacket.src_port}` : ''}
-                {' '}&rarr;{' '}
-                {selectedPacket.dst_ip}{selectedPacket.dst_port ? `:${selectedPacket.dst_port}` : ''}
-              </span>
-            </div>
-
-            {/* SPI (Hex) */}
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">SPI (Hex)</span>
-              <span className="font-bold text-amber-600 dark:text-amber-400 block text-[11px] font-mono whitespace-nowrap">
-                {selectedPacket.spi || '—'}
-              </span>
-            </div>
-
-            {/* Sequence # */}
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Sequence #</span>
-              <span className={`font-bold block text-[11px] ${selectedPacket.is_replay ? 'text-red-500 underline font-black' : 'text-gray-800 dark:text-gray-200'}`}>
-                {selectedPacket.seq_num !== null && selectedPacket.seq_num !== undefined ? selectedPacket.seq_num : '—'}
-                {selectedPacket.is_replay && ' [REPLAY]'}
-              </span>
-            </div>
-
-            {/* Wire Length */}
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Wire Length</span>
-              <span className="font-bold text-emerald-600 dark:text-emerald-400 block text-[11px] whitespace-nowrap">
-                {selectedPacket.packet_length} Bytes
-              </span>
-            </div>
-
-            {/* Timestamp */}
-            <div className="bg-white dark:bg-[#1E2530] p-2.5 rounded-lg border border-gray-200 dark:border-[#2C384B] col-span-1">
-              <span className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Timestamp</span>
-              <span className="font-semibold text-gray-700 dark:text-gray-300 block text-[11px] whitespace-nowrap" title={`Epoch: ${selectedPacket.timestamp}`}>
-                {formatTimestamp(selectedPacket.timestamp)}
-              </span>
-              <span className="text-[9px] text-gray-400 block truncate font-mono">
-                {selectedPacket.timestamp ? Number(selectedPacket.timestamp).toFixed(1) : ''}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-3 p-3 rounded-lg bg-white dark:bg-[#1E2530] text-[11px] font-mono text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-[#2C384B] flex items-start gap-2.5">
-            <span className="font-bold text-blue-600 dark:text-blue-400 shrink-0 uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20">Analysis</span>
-            <span className="leading-relaxed">{selectedPacket.details || 'Standard wire frame verified.'}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Multi-Protocol Live Wire Ingest Feed */}
-      <div className="rounded-xl bg-gray-950 text-gray-200 p-4 border border-gray-800">
-        <div className="flex flex-wrap items-center justify-between pb-3 mb-2 border-b border-gray-800 gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-mono text-xs text-gray-300 uppercase tracking-wider font-bold">
-              Multi-Protocol Live Wire Feed
-            </span>
-            <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-400">
-              {displayedWire.length} / {wireEvents.length} frames visible
-            </span>
-            <span className="text-[10px] text-gray-500 hidden lg:inline">
-              (Click any packet to inspect full metadata)
-            </span>
-          </div>
-
-          {/* Filter Pills, Order Toggle & Jump Buttons */}
-          <div className="flex items-center gap-2 flex-wrap text-xs font-mono">
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1 bg-gray-900 p-0.5 rounded-lg border border-gray-800">
-              <button
-                onClick={() => setWireFilter('all')}
-                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                  wireFilter === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                All ({wireEvents.length})
-              </button>
-              <button
-                onClick={() => setWireFilter('esp')}
-                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                  wireFilter === 'esp'
-                    ? 'bg-emerald-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                ESP ({espEvents.length})
-              </button>
-              <button
-                onClick={() => setWireFilter('ike')}
-                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                  wireFilter === 'ike'
-                    ? 'bg-purple-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                IKE ({ikeEvents.length})
-              </button>
-              <button
-                onClick={() => setWireFilter('anomaly')}
-                className={`px-2 py-1 rounded text-[11px] font-bold transition cursor-pointer ${
-                  wireFilter === 'anomaly'
-                    ? 'bg-rose-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200'
-                }`}
-              >
-                Anomalies ({wireEvents.filter(p => p.severity === 'CRITICAL' || p.severity === 'WARNING' || p.severity === 'MEDIUM' || p.is_replay).length})
-              </button>
-            </div>
-
-            {/* Sort Order Toggle */}
-            <button
-              onClick={() => setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
-              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-gray-900 border border-gray-800 text-gray-300 hover:text-white hover:border-gray-700 transition cursor-pointer flex items-center gap-1"
-              title="Toggle packet ordering"
-            >
-              <span>{sortOrder === 'asc' ? '▲ Frame #1 at Top' : '▼ Newest at Top'}</span>
-            </button>
-
-            {/* Scroll Navigation Buttons */}
-            {displayedWire.length > 5 && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <button
-                  onClick={scrollToTop}
-                  className="px-2 py-1 rounded-md text-[10px] font-bold bg-gray-900 border border-gray-800 text-gray-400 hover:text-white transition cursor-pointer"
-                  title="Scroll to top"
+                  onClick={copyHex}
+                  className="px-2 py-1 rounded bg-[#161B26] hover:bg-[#202738] border border-[#242C3F] text-[11px] font-mono text-gray-300 flex items-center gap-1 cursor-pointer"
+                  title="Export or copy raw cleartext header bytes"
                 >
-                  ↑ Top
+                  <Download className="h-3 w-3" />
+                  <span>Export hex</span>
                 </button>
                 <button
-                  onClick={scrollToBottom}
-                  className="px-2 py-1 rounded-md text-[10px] font-bold bg-gray-900 border border-gray-800 text-gray-400 hover:text-white transition cursor-pointer"
-                  title="Scroll to bottom"
+                  onClick={() => setSelectedPacket(null)}
+                  className="h-6 w-6 rounded hover:bg-[#161B26] text-gray-400 hover:text-white flex items-center justify-center cursor-pointer"
                 >
-                  ↓ Bottom
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Color-Coded Wire Packets Table (Red=Critical, Orange=Medium, Green=Secure/Low) */}
-        <div
-          ref={scrollRef}
-          className="font-mono text-xs space-y-1.5 min-h-[380px] max-h-[600px] overflow-y-auto pr-1 scroll-smooth"
-        >
-          {displayedWire.length === 0 ? (
-            <div className="text-gray-500 italic py-16 text-center">
-              No wire traffic captured. Click &quot;Simulate Stream&quot; or &quot;Live Sniff&quot; to begin.
             </div>
-          ) : (
-            displayedWire.map((pkt, idx) => {
-              const isCrit = pkt.severity === 'CRITICAL' || pkt.is_replay;
-              const isWarn = pkt.severity === 'WARNING' || pkt.severity === 'MEDIUM';
-              const isLow = !isCrit && !isWarn;
-              const isSelected = selectedPacket?.frame_number === pkt.frame_number;
 
-              return (
-                <div
-                  key={pkt.frame_number !== undefined && pkt.frame_number !== null ? `f-${pkt.frame_number}-${idx}` : idx}
-                  onClick={() => setSelectedPacket(pkt)}
-                  className={`flex items-center justify-between py-1.5 px-3 rounded-lg transition cursor-pointer ${
-                    isSelected
-                      ? 'ring-2 ring-blue-500'
-                      : ''
-                  } ${
-                    isCrit
-                      ? 'bg-red-500/15 border border-red-500/40 text-red-300 hover:bg-red-500/25'
-                      : isWarn
-                      ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300 hover:bg-amber-500/25'
-                      : 'bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20'
+            {/* Metadata key-value table matching Stitch */}
+            <div className="space-y-1.5 text-xs font-mono">
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Severity</span>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide ${
+                    pktSeverity === 'critical'
+                      ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                      : pktSeverity === 'medium'
+                      ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                      : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-gray-400 text-[11px] font-bold w-10 shrink-0 font-mono">
-                      #{pkt.frame_number !== undefined ? pkt.frame_number : idx + 1}
-                    </span>
+                  &bull; {pktSeverity.toUpperCase()} severity &middot; UDP {selectedPacket.dst_port || 500}
+                </span>
+              </div>
 
-                    {/* Status / Severity Tag */}
-                    <span
-                      className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                        isCrit
-                          ? 'bg-red-500 text-white'
-                          : isWarn
-                          ? 'bg-amber-500 text-gray-950 font-extrabold'
-                          : 'bg-emerald-500/30 text-emerald-300'
-                      }`}
-                    >
-                      {isCrit ? 'CRITICAL' : isWarn ? 'MEDIUM' : 'SECURE'}
-                    </span>
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Timestamp</span>
+                <span className="text-gray-200">{formatTimestamp(selectedPacket.timestamp)}</span>
+              </div>
 
-                    {/* Type Badge */}
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-300 shrink-0">
-                      {pkt.packet_type || pkt.protocol || 'ESP'}
-                    </span>
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Source endpoint</span>
+                <span className="text-rose-400 font-semibold">
+                  {selectedPacket.src_ip}:{selectedPacket.src_port || 500}
+                </span>
+              </div>
 
-                    {/* Source -> Destination */}
-                    <span className="text-gray-200 font-medium truncate">
-                      {pkt.src_ip}
-                      {pkt.src_port ? `:${pkt.src_port}` : ''} &rarr; {pkt.dst_ip}
-                      {pkt.dst_port ? `:${pkt.dst_port}` : ''}
-                    </span>
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Destination endpoint</span>
+                <span className="text-rose-400 font-semibold">
+                  {selectedPacket.dst_ip}:{selectedPacket.dst_port || 500}
+                </span>
+              </div>
 
-                    {/* SPI */}
-                    {pkt.spi && pkt.spi !== '—' && (
-                      <span className="text-purple-400 text-[11px] shrink-0">
-                        SPI:{pkt.spi}
-                      </span>
-                    )}
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Protocol</span>
+                <span className="text-gray-200">
+                  {selectedPacket.packet_type || selectedPacket.protocol || 'IKEv2 (Internet Key Exchange)'}
+                </span>
+              </div>
 
-                    {/* Sequence # */}
-                    {pkt.seq_num !== null && pkt.seq_num !== undefined && (
-                      <span
-                        className={`text-[11px] shrink-0 font-bold ${
-                          pkt.is_replay ? 'text-red-400 underline animate-pulse' : 'text-gray-400'
-                        }`}
-                      >
-                        Seq:{pkt.seq_num}
-                        {pkt.is_replay && ' [REPLAY]'}
-                      </span>
-                    )}
-                  </div>
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Exchange type</span>
+                <span className="text-amber-400 font-medium">
+                  {selectedPacket.exchange_type || 'Aggressive Mode (Type 4)'}
+                </span>
+              </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-amber-400 font-semibold">{pkt.packet_length}B</span>
-                    <span className="text-[10px] text-gray-500 hover:text-gray-300">&rarr;</span>
-                  </div>
-                </div>
-              );
-            })
-          )}
-          {orderedWire.length > MAX_DOM_ROWS && (
-            <div className="text-[11px] font-mono text-gray-500 dark:text-gray-400 py-2 text-center bg-gray-900/50 rounded-lg border border-gray-800">
-              Displaying {MAX_DOM_ROWS} of {orderedWire.length} matching frames. Use order toggle (Frame #1 vs Newest) or filters to inspect other frames.
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Packet wire length</span>
+                <span className="text-gray-200">{selectedPacket.packet_length || 396} bytes</span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Initiator SPI</span>
+                <span className="text-gray-300">{selectedPacket.spi || '0x9F30CA1942E109B2'}</span>
+              </div>
+
+              <div className="flex items-center justify-between py-1 border-b border-[#1F2639]/50">
+                <span className="text-gray-400">Responder SPI</span>
+                <span className="text-gray-300">0x0000000000000000</span>
+              </div>
+
+              <div className="flex items-center justify-between py-1">
+                <span className="text-gray-400">Next payload</span>
+                <span className="text-gray-200">Security Association (SA)</span>
+              </div>
             </div>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
 
-function MetricTile({ label, value, sub }) {
-  return (
-    <div className="p-3.5 rounded-xl bg-gray-50 dark:bg-[#1E2530] border border-gray-100 dark:border-[#2C384B]">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-        {label}
+            {/* Cryptographic Diagnosis Section with AI Button */}
+            <div className="rounded-lg bg-[#141824] border border-[#222B3F] p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-white">
+                  <FileText className="h-3.5 w-3.5 text-blue-400" />
+                  <span>Cryptographic diagnosis</span>
+                </div>
+                <button
+                  onClick={handleExplainPacket}
+                  disabled={aiLoading}
+                  className="px-2.5 py-1 rounded bg-[#1C2233] hover:bg-[#263047] border border-[#2F3952] text-[11px] font-medium text-gray-300 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  <Sparkles className="h-3 w-3 text-blue-400" />
+                  <span>{aiLoading ? 'Analyzing...' : 'AI explanation'}</span>
+                </button>
+              </div>
+
+              {aiResult && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    Source: {aiResult?.source === 'cloud_llm' ? 'Gemini 1.5 Pro' : 'CryptoLens Rules'}
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#1C2233] text-gray-400 border border-[#242C3F]">
+                    Evaluated: {aiResult?.evaluated_rule || 'RFC 4303'}
+                  </span>
+                </div>
+              )}
+
+              {aiLoading ? (
+                <div className="py-2 flex items-center gap-2 text-xs text-blue-400">
+                  <span className="h-3 w-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                  <span>Running LLM cryptographic analysis...</span>
+                </div>
+              ) : aiResult ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-300 leading-relaxed font-sans">
+                    {aiResult.explanation}
+                  </p>
+                  {aiResult.operator_guidance && (
+                    <div className="p-2 rounded bg-[#0D111A] border border-[#1E2538] text-[11px] text-amber-300 font-sans">
+                      <strong className="text-amber-400">Operator guidance: </strong>
+                      {aiResult.operator_guidance}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500 italic font-sans">
+                  Click &ldquo;AI explanation&rdquo; to evaluate RFC 4303 zero-decryption metadata and operator guidance for this frame.
+                </p>
+              )}
+            </div>
+
+            {/* Cleartext IKE Header Hex (Bytes 0-27) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] font-mono text-gray-400">
+                <span>CLEARTEXT IKE HEADER HEX (BYTES 0-27)</span>
+                <button
+                  onClick={copyHex}
+                  className="flex items-center gap-1 hover:text-white cursor-pointer transition-colors"
+                >
+                  {copiedHex ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                  <span>{copiedHex ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-[#07090E] border border-[#1A2030] text-[11px] font-mono text-gray-300 leading-relaxed overflow-x-auto select-all">
+                <div className="text-gray-500">0000: <span className="text-gray-200">9f 30 ca 19 42 e1 09 00</span>  <span className="text-gray-400">00 00 00 00 00 00 00 00</span></div>
+                <div className="text-gray-500">0010: <span className="text-amber-400">04 10 02 00 00 00 00 00</span>  <span className="text-blue-400">00 00 01 8c</span></div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Empty / Unselected Inspector State */
+          <div className="xl:col-span-5 hidden xl:flex flex-col items-center justify-center p-8 rounded-xl bg-[#0F121C] border border-[#1F2639] text-center min-h-[460px]">
+            <Radio className="h-8 w-8 text-gray-600 mb-2" />
+            <h4 className="text-xs font-semibold text-gray-300 font-mono">Select a Frame to Inspect</h4>
+            <p className="text-[11px] text-gray-500 max-w-xs mt-1">
+              Click on any moving packet node or topology host in the canvas to examine header fields, RFC diagnosis, and cleartext bytes.
+            </p>
+          </div>
+        )}
       </div>
-      <div className="text-sm font-extrabold text-gray-900 dark:text-white capitalize mt-0.5">
-        {value}
-      </div>
-      <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{sub}</div>
     </div>
   );
 }

@@ -1,0 +1,28 @@
+# CryptoLens Vendor Draft Configuration - Fortinet FortiOS
+# Standard: NIST SP 800-77 Rev. 1 / NSA CNSA 1.0 (Transitionary)
+# NOTICE: AI DRAFT, UNVALIDATED, review before applying. No claim of loadability.
+
+config vpn ipsec phase1-interface
+    edit "hardened-p1"
+        set interface "wan1"
+        set ike-version 2
+        set proposal aes256gcm-prfsha384
+        set dhgrp 20
+        set keylife {{ rekey_seconds | default(3600) }}
+        set peertype any
+        set dpd-retryinterval 30
+    next
+end
+
+config vpn ipsec phase2-interface
+    edit "hardened-p2"
+        set phase1name "hardened-p1"
+        set proposal aes256gcm
+        set pfs enable
+        set dhgrp 20
+        set replay enable
+        set keylifeseconds {{ rekey_seconds | default(3600) }}
+        set src-subnet {{ local_subnet | default("192.168.1.0 255.255.255.0") }}
+        set dst-subnet {{ remote_subnet | default("192.168.2.0 255.255.255.0") }}
+    next
+end

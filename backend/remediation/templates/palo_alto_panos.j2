@@ -1,0 +1,13 @@
+# CryptoLens Vendor Draft Configuration - Palo Alto PAN-OS (Set Commands)
+# Standard: NIST SP 800-77 Rev. 1 / NSA CNSA 1.0 (Transitionary)
+# NOTICE: AI DRAFT, UNVALIDATED, review before applying. No claim of loadability.
+
+set network ike crypto-profiles ike-crypto-profiles IKE-HARDENED hash sha384 dh-group group20 encryption aes-256-gcm lifetime seconds {{ rekey_seconds | default(3600) }}
+set network ipsec crypto-profiles ipsec-crypto-profiles IPSEC-HARDENED esp authentication none encryption aes-256-gcm dh-group group20 lifetime seconds {{ rekey_seconds | default(3600) }}
+
+set network ike gateway GW-HARDENED version ikev2 protocol-common nat-traversal enable keep-alive 10
+set network ike gateway GW-HARDENED protocol-common dpd enable interval 30
+set network ike gateway GW-HARDENED protocol ikev2 ike-crypto-profile IKE-HARDENED
+
+set network ipsec tunnel TUNNEL-HARDENED auto-key ike-gateway GW-HARDENED ipsec-crypto-profile IPSEC-HARDENED
+set network ipsec tunnel TUNNEL-HARDENED anti-replay yes

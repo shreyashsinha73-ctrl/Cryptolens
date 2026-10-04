@@ -44,6 +44,15 @@ app.include_router(live.router, tags=["Live Streaming"])
 app.include_router(remediation.router, tags=["Remediation"])
 app.include_router(xai.router, tags=["XAI"])
 
+
+@app.on_event("startup")
+def log_startup_configuration():
+    cloud_ai = os.getenv("ENABLE_CLOUD_LLM", "false").lower() in ("true", "1", "yes")
+    provider = os.getenv("LLM_PROVIDER", "gemini" if cloud_ai else "none").strip().lower()
+    fallback = os.getenv("LLM_FALLBACK_PROVIDER", "none").strip().lower()
+    status_str = f"ON (Provider: {provider}, Fallback: {fallback})" if (cloud_ai and provider != "none") else "OFF (Air-gapped / Deterministic Templates only)"
+    print(f"[*] CryptoLens Core initialized. Cloud AI Explainer: {status_str}")
+
 if __name__ == "__main__":
     import uvicorn
     host = os.getenv("HOST", "127.0.0.1")  # Default to 127.0.0.1 (P2-1)

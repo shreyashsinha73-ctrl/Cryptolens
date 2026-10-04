@@ -59,7 +59,7 @@ def infer_mode_and_traffic(
 
     config = GeminiClientConfig()
     if config.validate():
-        client = GeminiClient(config)
+        client = GeminiClient()
         request = ModeAndTrafficInferenceRequest(
             packet_lengths=packet_lengths,
             inter_arrival_times=inter_arrival_times,

@@ -3,106 +3,58 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Nunito Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-nunito: "Nunito Sans", sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --color-background: #090A0F;
+  --color-foreground: #F3F4F6;
+
+  --color-card: #0F121C;
+  --color-card-foreground: #F3F4F6;
+
+  --color-popover: #0F121C;
+  --color-popover-foreground: #F3F4F6;
+
+  --color-primary: #3B82F6;
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #1E2333;
+  --color-secondary-foreground: #E5E7EB;
+
+  --color-muted: #161A26;
+  --color-muted-foreground: #9CA3AF;
+
+  --color-accent: #1C2233;
+  --color-accent-foreground: #F3F4F6;
+
+  --color-destructive: #EF4444;
+  --color-destructive-foreground: #FFFFFF;
+
+  --color-border: #1F2639;
+  --color-input: #1F2639;
+  --color-ring: #3B82F6;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
 }
 
 :root {
-  /* Light Mode Base Layers */
-  --soc-bg: #F1F3F6;
-  /* Crisp Black and White Light Mode */
-  --soc-bg: #FFFFFF;
-  --soc-sidebar-bg: #FFFFFF;
-  --soc-card-bg: #FFFFFF;
-  --soc-card-elevated: #F8F9FA;
-  --soc-border: #E2E4E9;
-  --soc-border-subtle: #EDEFF2;
-  --soc-card-elevated: #F9FAFB;
-  --soc-border: #E5E7EB;
-  --soc-border-subtle: #F3F4F6;
-  --soc-hover: #F3F4F6;
-
-  /* Light Mode Text */
-  --soc-text-primary: #111827;
-  --soc-text-secondary: #4B5563;
-  --soc-text-primary: #000000;
-  --soc-text-secondary: #374151;
-  --soc-text-tertiary: #6B7280;
-  --soc-text-disabled: #9CA3AF;
-
-  /* Severity Colors Light */
-  --soc-critical: #DC2626;
-  --soc-critical-bg: #FEE2E2;
-  --soc-critical-border: #FCA5A5;
-
-  --soc-high: #EA580C;
-  --soc-high-bg: #FFEDD5;
-  --soc-high-border: #FDBA74;
-
-  --soc-medium: #D97706;
-  --soc-medium-bg: #FEF3C7;
-  --soc-medium-border: #FDE68A;
-
-  --soc-low: #0891B2;
-  --soc-low-bg: #CFFAFE;
-  --soc-low-border: #A5F3FC;
-
-  --soc-operational: #059669;
-  --soc-operational-bg: #D1FAE5;
-  --soc-operational-border: #6EE7B7;
-
-  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
-html.dark {
-  /* Dark Mode Base Layers (Figma SecureOps Design System) */
-  --soc-bg: #0F1012;
-  --soc-sidebar-bg: #18191D;
-  --soc-card-bg: #18191D;
-  --soc-card-elevated: #23252A;
-  --soc-border: #2A2C34;
-  --soc-border-subtle: #222329;
-  --soc-hover: #282A32;
-
-  /* Dark Mode Text */
-  --soc-text-primary: #F9FAFB;
-  --soc-text-secondary: #9CA3AF;
-  --soc-text-tertiary: #6B7280;
-  --soc-text-disabled: #4B5563;
-
-  /* Severity Colors Dark */
-  --soc-critical: #EF4444;
-  --soc-critical-bg: rgba(239, 68, 68, 0.15);
-  --soc-critical-border: rgba(239, 68, 68, 0.35);
-
-  --soc-high: #F97316;
-  --soc-high-bg: rgba(249, 115, 22, 0.15);
-  --soc-high-border: rgba(249, 115, 22, 0.35);
-
-  --soc-medium: #EAB308;
-  --soc-medium-bg: rgba(234, 179, 8, 0.15);
-  --soc-medium-border: rgba(234, 179, 8, 0.35);
-
-  --soc-low: #06B6D4;
-  --soc-low-bg: rgba(6, 182, 212, 0.15);
-  --soc-low-border: rgba(6, 182, 212, 0.35);
-
-  --soc-operational: #10B981;
-  --soc-operational-bg: rgba(16, 185, 129, 0.15);
-  --soc-operational-border: rgba(16, 185, 129, 0.35);
+  --background: #090A0F;
+  --foreground: #F3F4F6;
+  --card: #0F121C;
+  --card-foreground: #F3F4F6;
+  --border: #1F2639;
+  --muted: #161A26;
+  --muted-foreground: #9CA3AF;
+  --primary: #3B82F6;
 }
 
 body {
-  font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   margin: 0;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
-
-/* Smooth, synchronized transitions without font flash */
-*, *::before, *::after {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-

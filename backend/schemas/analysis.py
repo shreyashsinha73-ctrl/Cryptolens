@@ -107,6 +107,7 @@ class SummaryData(BaseModel):
         le=100.0
     )
     risk_level: str
+    risk_review: Optional[str] = None
     score_observed_only: Optional[float] = None
     score_if_unobserved_fail: Optional[float] = None
     score_if_unobserved_pass: Optional[float] = None
@@ -137,6 +138,8 @@ class AnalysisResultResponse(BaseModel):
     threat_matrix: List[ThreatItem] = Field(default_factory=list)
 
     compliance: Optional[ComplianceResult] = None
+    pcap_file: Optional[str] = None
+    remediation: Optional[Any] = None
 
 class AnalysisFailureResponse(BaseModel):
     job_id: str

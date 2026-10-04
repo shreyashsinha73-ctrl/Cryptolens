@@ -60,6 +60,17 @@ def _run_pipeline_sync(job_id: str, file_path: Path):
         else:
             risk_level = evaluation["risk_level"]
 
+        remediation = None
+        try:
+            from backend.remediation.remediation_engine import RemediationEngine
+            _rem_engine = RemediationEngine()
+            remediation = _rem_engine.generate_remediation(
+                findings=evaluation.get("findings", []),
+                control_plane=analysis_input.get("control_plane") or {},
+            )
+        except Exception as r_err:
+            pass
+
         result_payload = {
             "job_id": job_id,
             "status": "completed",
@@ -67,6 +78,15 @@ def _run_pipeline_sync(job_id: str, file_path: Path):
             "summary": {
                 "overall_security_score": security_score,
                 "risk_level": risk_level,
+                "base_risk_level": evaluation.get("base_risk_level"),
+                "risk_review": evaluation.get("risk_review"),
+                "score_observed_only": evaluation.get("score_observed_only"),
+                "score_if_unobserved_fail": evaluation.get("score_if_unobserved_fail"),
+                "score_if_unobserved_pass": evaluation.get("score_if_unobserved_pass"),
+                "score_headline": evaluation.get("score_headline"),
+                "coverage": evaluation.get("coverage"),
+                "coverage_ratio": evaluation.get("coverage_ratio"),
+                "confidence_label": evaluation.get("confidence_label"),
                 "ai_confidence_score": evaluation["ai_confidence_score"],
                 "agreement_flag": evaluation["agreement_flag"],
                 "processed_packets": processed_packets,
@@ -77,6 +97,7 @@ def _run_pipeline_sync(job_id: str, file_path: Path):
             "threat_matrix": evaluation.get("findings", []),
             "compliance": compliance_result,
             "pcap_file": str(Path(file_path).resolve()),
+            "remediation": remediation,
         }
 
         result_store.save(job_id, result_payload)

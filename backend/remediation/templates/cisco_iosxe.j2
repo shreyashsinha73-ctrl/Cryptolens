@@ -1,0 +1,34 @@
+! CryptoLens Vendor Draft Configuration - Cisco IOS-XE
+! Standard: NIST SP 800-77 Rev. 1 / NSA CNSA 1.0 (Transitionary)
+! NOTICE: AI DRAFT, UNVALIDATED, review before applying. No claim of loadability.
+
+crypto ikev2 proposal IKEV2-PROPOSAL-HARDENED
+ encryption aes-gcm-256
+ prf sha384
+ group 20
+
+crypto ikev2 policy IKEV2-POLICY-HARDENED
+ proposal IKEV2-PROPOSAL-HARDENED
+
+crypto ikev2 profile IKEV2-PROFILE-HARDENED
+ match identity remote any
+ authentication remote pre-share
+ authentication local pre-share
+ dpd 30 5 periodic
+
+crypto ipsec transform-set IPSEC-TS-HARDENED esp-gcm 256
+ mode tunnel
+
+crypto ipsec profile IPSEC-PROFILE-HARDENED
+ set transform-set IPSEC-TS-HARDENED
+ set ikev2-profile IKEV2-PROFILE-HARDENED
+ set pfs group20
+ set security-association lifetime seconds {{ rekey_seconds | default(3600) }}
+ set replay-window {{ replay_window | default(64) }}
+
+interface Tunnel1
+ ip address 10.10.10.1 255.255.255.252
+ tunnel source GigabitEthernet0/0/0
+ tunnel mode ipsec ipv4
+ tunnel destination {{ remote_id | default("192.168.2.1") }}
+ tunnel protection ipsec profile IPSEC-PROFILE-HARDENED

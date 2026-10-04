@@ -1,88 +1,562 @@
-# CryptoLens v2 — Hardening & Verification Context
+# CryptoLens Codebase Context for Claude
 
-## 1. Executive Summary & Verification State
-CryptoLens v2 is a passive, defense-grade IPsec security-audit platform operating under the strict doctrine of:
-**"Zero Decryption, Zero Plaintext Access"**.
+This file is the operational handoff for an AI coding agent. Treat the code in
+the repository as authoritative when it conflicts with older planning material.
+Do not infer plaintext, decrypted payloads, or hidden IKEv2 Child SA values from
+a packet capture unless the evidence source explicitly supports that claim.
 
-All items across **P0 (Runtime Bugs)**, **P1 (Correctness & Claim Integrity)**, **P2 (Security, Ops, Demo)**, and **Phase A (Adversarial Audit & Test Strengthening)** have been implemented, audited, and verified.
+## 1. Project Identity
 
-- **Pytest Suite**: 76 passed, 1 skipped (77 total tests across `tests/`, `scripts/`, and `backend/scripts/`)
-- **Demo Verification**: 5/5 stages passing in `./scripts/demo_audit.sh` with exact per-stage stopwatch timings
-- **CI Workflow**: Configured in `.github/workflows/ci.yml` (strongswan-swanctl, daemon startup, CPU torch index, full test suite + demo audit)
-- **Authoritative Target**: strongSwan `swanctl.conf` syntax-checked and daemon VICI socket verified
-- **Evidence Provenance**: Explicit badges for all findings (`ike_sa_init`, `ike_v1_cleartext`, `esp_header_metadata`, `traffic_statistics`, `testbed_config`, `operator_supplied`, `inferred`, `cleartext_on_wire`)
+CryptoLens is a passive, defense-oriented IPsec security audit platform. Its
+central security promise is:
 
----
+> Zero decryption. Zero plaintext access.
 
-## 2. Phase-by-Phase Status & Evidence Table
+It analyzes `.pcap`, `.pcapng`, and `.cap` captures and produces:
 
-### P0 — Runtime Bugs
-| Item | Description | Status | Evidence |
-|---|---|---|---|
-| **P0-1** | Cross-thread broadcast: replace `get_event_loop()` with `get_running_loop()`, threadsafe queue, bounded batch flusher (100–250ms). | **Fixed** | `tests/test_p0_cross_thread_broadcast.py::test_cross_thread_broadcast_batching` (5,000 synthetic records dispatched into `_telemetry_queue`, drained and batched over `ws_manager` by `_telemetry_flusher`). |
-| **P0-2** | ESP/NAT-T extraction: Scapy `from scapy.layers.ipsec import ESP`, read `pkt[ESP].spi`/`seq`; parse NAT-T (UDP 4500) non-ESP marker (4 zero bytes) and 1-byte 0xFF keepalive; tshark IPv6 parity (`ipv6.src`, `ipv6.dst`, `ipv6.nxt`). | **Fixed** | `tests/test_p0_esp_extraction.py` (5 tests covering ESP layer extraction, NAT-T non-ESP marker, keepalive filtering, IPv6 extraction, and tshark field flags). |
-| **P0-3** | RFC 4303 Anti-Replay Detection: Added `iface` to `ESPPacketRecord`, keying on `(iface, spi, seq)`; 64-bit sliding window with ESN awareness and memory bounding. | **Fixed** | `tests/test_p0_replay_detection.py` (4 tests: true replay yields CRITICAL; multi-interface capture causes 0 false positives; out-of-order within window accepted; ESN rollover). |
-| **P0-4** | Non-blocking async handlers: Offloaded blocking I/O (LLM `requests.post`), PyTorch/torchvision, and tshark subprocesses to `asyncio.to_thread` / `run_in_executor`. | **Fixed** | `tests/test_p0_nonblocking_async.py::test_websocket_responsiveness_during_slow_remediation` (WebSocket ping round-trips < 200ms while 2s mock remediation runs). |
-| **P0-5** | Task lifecycle: Explicit handles for inference and simulation tasks, clean `cancel()` + `await`, start idempotent under concurrent calls via `asyncio.Lock`. Rapid stop->start within 2s yields exactly one task. | **Fixed** | `tests/test_p0_task_lifecycle.py::test_rapid_start_stop_start_lifecycle` (asserts exactly one active task under rapid churn). |
-| **P0-6** | Pipeline wiring: Rolling loop invokes `AnomalyDetector`, drains `ike_queue` (bounded `deque(maxlen=1000)`), feeds `ScoringEngine`/`ComplianceEngine`, and broadcasts `anomaly_alert` + rolling score. | **Fixed** | `tests/test_p0_pipeline_stages.py` (2 tests validating real detector invocation, IKE draining, and rolling score calculation). |
-| **P0-7** | WebSocket endpoint: Clean `await receive_text()` loop with `WebSocketDisconnect` handling; broadcast via per-client bounded queues with `asyncio.wait_for` timeout (500ms); server heartbeat ping every 15-30s. | **Fixed** | `tests/test_p0_websocket_heartbeat.py` (2 tests checking client disconnect handling and slow-client isolation). |
-| **P0-8** | Grad-CAM / Integrated Gradients (IG): Cached loaded model via `functools.lru_cache`, tensor output hooks robust to in-place ReLU, hook cleanup in `finally`, target layer named `model.last_conv`. Sequence length interpolated via `F.interpolate`. Shared `preprocess()` using `metrics.json`. IG completeness check ($\sum \text{Attr} \approx f(x) - f(x_0)$). | **Fixed** | `tests/test_p0_saliency.py` (5 tests validating heatmap length, non-negativity, hook cleanup on error, IG completeness tolerance, and preprocess parity). |
-| **P0-9** | LLM Client & Air-Gap Flag: Default model `gemini-3.8-flash` via env `GEMINI_MODEL`, `ENABLE_CLOUD_LLM=false` by default for air-gapped security; explicit response fields: `engine_used`, `fallback_reason`, `validation_level`; configurable `OLLAMA_MODEL` (defaulting to MIT/Apache models). | **Fixed** | `tests/test_p0_llm_client.py` (8 tests testing air-gap enforcement, fallback logging, and Ollama configuration). |
+- deterministic IKE/control-plane protocol facts when they are observable;
+- metadata-only ESP/data-plane mode and traffic classification;
+- security scoring and NIST/CNSA compliance evaluation;
+- evidence provenance for every assessed field;
+- anomaly and replay findings;
+- validated remediation configuration suggestions;
+- executive/technical PDF reports;
+- an interactive React SOC dashboard and live telemetry WebSocket.
 
----
+The repository is a combined prototype, testbed, backend service, frontend,
+model-training workspace, and demonstration harness. It is not a general VPN
+implementation and it must never claim to decrypt IPsec traffic.
 
-### P1 — Correctness & Claim Integrity
-| Item | Description | Status | Evidence |
-|---|---|---|---|
-| **P1-1** | Strict remediation validation: `HardenedIPsecConfig` with `extra="forbid"`, approved AEAD ciphers only (`aes256gcm16`, `aes128gcm16`), DH profiles (`nist`: ecp256/ecp384; `cnsa1`: ecp384 only; P-384 labeled CNSA 1.0, not CNSA 2.0; note on PQ ML-KEM-1024 readiness). Rekey time, IDs, and CIDRs validated via `ipaddress`. LLM output never rendered unvalidated. | **Fixed** | `tests/test_p1_remediation_validation.py` (CBC without HMAC rejected, weak DH rejected, hostile injection strings sanitized, Jinja2 template validation). |
-| **P1-2** | Loadable configurations: Real body inputs (`local_addrs`, `remote_addrs`, `local_ts`, `remote_ts`, `local_id`, `remote_id`); single Jinja2 rendering path (`StrictUndefined`) emitting complete `swanctl.conf`; `validation_level` = "schema" / "loaded" (verified with `swanctl --load-all` in netns/charon). `ipsec.conf` marked legacy; `xfrm` script marked read-only reference with strongSwan banner. | **PARTIAL** | `tests/test_p1_remediation_validation.py::test_swanctl_syntax_validator` passes offline; `tests/test_p1_remediation_validation.py::test_swanctl_load_execution` passes in CI/charon, skipped locally without root VICI socket. |
-| **P1-3** | Offline Anomaly Detector: In-request training removed. Offline script `scripts/train_anomaly.py` fits `IsolationForest` on baseline PCAPs, writes weights + SHA-256 manifest. 99.5th percentile threshold on normal data. $k$-of-$n$ (3 of 5) consecutive window filter. Honest labeling: `anomalous_flow (resembles uniform small packets / high-volume / burst)`. VoIP/bulk transfers do not false-alarm. Features log-transformed and z-scored. | **Fixed** | `tests/test_p1_anomaly_detector.py` (8 tests: SHA-256 hash manifest check, held-out PCAP evaluation FPR = 0.00%, synthetic FPR = 0.60%, `test_synthetic_voip_regression_not_flagged_as_covert_channel`, `test_synthetic_bulk_transfer_regression_not_flagged_as_exfiltration`, $k$-of-$n$ filter, honest labels). |
-| **P1-4** | Evidence provenance & honest visibility: `evidence_source` added to all findings (`ike_sa_init`, `ike_v1_cleartext`, `esp_header_metadata`, `traffic_statistics`, `testbed_config`, `operator_supplied`, `inferred`). Cleartext on wire vs decapsulated capture labeled. Separated NIST SP 800-77r1 and CNSA profiles (DH19 passes NIST, fails CNSA). | **Fixed** | `tests/test_p1_provenance_and_dpi.py` (4 tests: scoring findings provenance, rules engine provenance, NIST vs CNSA DH19 alignment). |
-| **P1-5** | Sweet32 & Saliency semantics: Deleted `len % 8 == 0` heuristic. Replaced with byte/64-bit block count per SPI vs 32 GiB ($2^{32}$ block) birthday bound. Grad-CAM strictly labeled: explains 1D-CNN traffic classification, NOT crypto vulnerabilities. Relative saliency normalized [0.0, 1.0], raw attribution magnitude, and class probabilities displayed. | **Fixed** | `tests/test_p1_sweet32_saliency.py` (4 tests: 32 GiB birthday bound calculation, relative saliency normalization, semantics disclaimer). |
-| **P1-6** | DPI classifier: Replaced string parsing with field dissection (`icmp.type`, `dns.flags.response`, `rtp`, `sip`, `tls`). Zero-byte frames handled at root cause. IPv4/IPv6 parity maintained. | **Fixed** | `tests/test_p1_provenance_and_dpi.py` (DPI dissection and 0-byte frame fix verification). |
-| **P1-7** | Frontend & Report Wiring: Stream deduplication keyed on `(stream_id, frame)` with bounded dedupe set. WebSocket reconnect exponential backoff with unmount guard. Virtualized packet log. Heatmap sequence -> frame number mapping. Remediation UI with copy button and validation level badges. Remediation and XAI sections wired into PDF reports with evidence sources. Registered all routers in `main.py` (`/live/simulate`, `target_head`). | **Fixed** | `tests/test_p1_frontend_wiring.py` (6 tests: OpenAPI registration, stream ID generation, frame mapping, anomaly z-scores, stream deduplication, consecutive simulation collision prevention). |
+## 2. Non-Negotiable Domain Boundaries
 
----
+### Control plane versus data plane
 
-### P2 — Security, Ops, Demo
-| Item | Description | Status | Evidence |
-|---|---|---|---|
-| **P2-1** | Security surface: API bound to `127.0.0.1` by default. API token auth on `/live/start|stop|simulate` and `/remediate`. Interface validated against Scapy interface list. `job_id` validated as strict UUID/hex. Explicit restrictive CORS. | **Fixed** | `tests/test_p2_security_surface.py` (5 tests covering auth tokens, interface whitelist, job_id validation, CORS headers). |
-| **P2-2** | Non-root capabilities: Documented `setcap cap_net_raw+eip` on Python binary in `docs/non_root_capabilities.md`. Sniffer performs raw socket pre-flight and returns 403 Forbidden with remediation commands when unprivileged. Docker configured with `network_mode: host` and `cap_add: [NET_RAW]`. | **Fixed** | `tests/test_p2_non_root.py` and `docs/non_root_capabilities.md`. |
-| **P2-3** | Pinned dependencies & CPU-only PyTorch: Locked dependencies in `requirements.txt` with CPU-only wheels (`--extra-index-url https://download.pytorch.org/whl/cpu`). Dockerfile updated for lean non-CUDA builds. User-specific paths (`/home/...`) purged from code and documentation. | **Fixed** | `tests/test_p2_models_cpu.py` (3 tests verifying CPU tensor execution and absence of hardcoded personal paths). |
-| **P2-4** | End-to-end Demo Script & Audit: Replaced factually inaccurate claims ("factored" -> "within reach of nation-state precomputation (Logjam)"; P-384 as CNSA 1.0; explicit XAI classification semantics). Added automated 5-stage demonstration script (`scripts/demo_audit.sh`) with live RFC 4303 anti-replay detection and authoritative remediation verification. | **Fixed** | `./scripts/demo_audit.sh` (executes 5/5 stages in < 1 second with exact per-stage stopwatch timings). |
+The pipeline deliberately separates facts from inference:
 
----
+1. IKE negotiation is parsed deterministically using tshark when available,
+   with a native Python binary parser as fallback. IKE version, proposals,
+   transforms, DH, and some SA properties are extracted from visible packets.
+2. ESP payloads remain encrypted. The data-plane path uses only packet lengths,
+   timestamps/inter-arrival times, ESP headers, sequence numbers, and other
+   wire metadata. It predicts operating mode and inner traffic class; it does
+   not identify plaintext content.
+3. If IKEv2 Child SA transforms or peer identities are not visible, label them
+   `not_observable`, `testbed_config`, `operator_supplied`, or `inferred` as
+   appropriate. Never relabel those values as wire-observed facts.
 
-### Phase A — Adversarial Audit & Verification Hardening
-| Item | Description | Status | Evidence |
-|---|---|---|---|
-| **A1** | Deleted/changed files: Verified duplicate scripts in `backend/generated_reports/scripts/` were redundant copies of canonical `backend/scripts/`. Modernized `pytest.ini` to discover `tests`, `scripts`, and `backend/scripts`. Added pytest wrappers for `test_end_to_end.py` and `test_control_plane.py`. | **Fixed** | All 77 tests discovered across all three suites; 0 import collisions. |
-| **A2** | Test honesty & mocks: Audited all tests for mock hollow-outs. Uncovered 4 hallucinated tests from previous agent report. Wrote real `test_swanctl_load_execution` that checks `/var/run/charon.vici` and honestly reports skip instructions when charon daemon is inactive. | **Fixed** | `pytest -v -rs` reports 76 passed, 1 honestly skipped (`test_swanctl_load_execution`). |
-| **A3** | Mutation checks: Strengthened worthless tests: rewrote `test_p0_cross_thread_broadcast.py` to directly exercise `_telemetry_queue` and `_telemetry_flusher` (proved it fails when flusher mutated). Added `(stream_id, frame)` deduplication and consecutive simulation isolation tests. | **Fixed** | All 8 mutation checks confirmed to fail upon reversion and pass upon restoration. |
-| **A4** | Anomaly metrics: Exposed data leakage in synthetic-only evaluation (100% FPR on real PCAP). Added SHA-256 weight manifest integrity check. Retrained Isolation Forest on authentic wire flows from multiple PCAPs while holding out `config_02`. | **Fixed** | `test_held_out_pcap_file_fpr_below_threshold`: 0/7 false alarms on held-out PCAP file (95% Clopper-Pearson upper bound); `test_synthetic_normal_traffic_fpr_count`: 6/1000 false alarms (0.60% FPR) at threshold -0.0000. |
-| **A5** | `demo_audit.sh`: Verified all 5 stages execute real binaries and models (tshark, Scapy IKE parser, ONNX 1D-CNN runtime, PyTorch autograd Grad-CAM, RFC 4303 AntiReplayWindow, RemediationEngine, swanctl). Added per-stage command printing and millisecond stopwatch timings. | **Fixed** | `./scripts/demo_audit.sh` outputs per-stage commands and timing breakdown (total runtime ~0.54s). |
-| **A6** | CI workflow: Updated `.github/workflows/ci.yml` with `strongswan-swanctl`, daemon startup, CPU torch index, full test suite execution, and demo audit run. Documented manual execution for dev environments without sudoers password. | **UNVERIFIED** | Local workflow syntax validated; live execution on GitHub Actions runner pending push. |
+### Evidence and observability
 
----
+Finding fields should retain both `observability` and `evidence_source`.
+Typical evidence sources are:
 
-## 3. Test Execution Commands
+- `ike_sa_init`: visible IKEv2 initial exchange;
+- `ike_v1_cleartext`: visible IKEv1 proposal data;
+- `esp_header_metadata`: ESP SPI/sequence/header metadata;
+- `traffic_statistics`: statistical data-plane inference;
+- `testbed_config`: known lab ground truth, not passive observation;
+- `operator_supplied`: validated sidecar supplied by the operator;
+- `inferred`: derived rather than directly observed;
+- `cleartext_on_wire`: explicit cleartext-on-wire evidence where applicable.
 
-```bash
-# Run the entire pytest test suite (77 tests across tests, scripts, backend/scripts)
-./.venv/bin/pytest -v -rs tests scripts backend/scripts
+Grad-CAM and Integrated Gradients explain what the 1D CNN used for traffic
+classification. They do not explain cryptographic weaknesses or prove a
+cipher has been broken.
 
-# Run the 5-stage end-to-end demonstration audit with timings
-./scripts/demo_audit.sh
+## 3. System Architecture
 
-# Run end-to-end PCAP integration test
-./.venv/bin/pytest scripts/test_end_to_end.py -v
+```text
+strongSwan testbed / uploaded PCAP
+              |
+              v
+capture validation and IKE/ESP demux
+       |                      |
+       v                      v
+deterministic IKE AST     ESP feature extraction
+       |                      |
+       +----------+-----------+
+                  v
+        data-plane classifier/anomaly detector
+                  |
+                  v
+        ScoringEngine + ComplianceEngine
+          |          |          |
+          v          v          v
+       ResultStore  PDF      React dashboard
+                         + live WebSocket telemetry
 ```
 
----
+### Offline PCAP flow
 
-## 4. Remaining Limitations & Honest Boundaries
-1. **Passive Decryption Boundary**: In IKEv2, Child SA transform negotiations, Diffie-Hellman CREATE_CHILD_SA exchanges, and peer identities are encrypted on the wire. When analyzing IKEv2 captures where only `IKE_SA_INIT` is in the clear, Child SA parameters are labeled with evidence source `testbed_config` or `operator_supplied`, never claimed as passively observed.
-2. **XAI Attribution Semantics**: Grad-CAM heatmaps highlight temporal burst patterns and packet length signatures that influence the 1D-CNN's mode and traffic classification. They do not attribute cryptographic cipher weaknesses or mathematical flaws.
-3. **Anomaly Flow Labeling**: The anomaly detector flags statistical deviations (e.g. high-volume bursts or uniform micro-packet streams). Per-tunnel baselines (EWMA) are required to distinguish benign bulk backups or constant-bitrate VoIP from active exfiltration.
-4. **Charon Daemon Privilege Boundary**: `swanctl --load-all` requires a running strongSwan charon daemon and communication over `/var/run/charon.vici`. In unprivileged non-root development environments without passwordless sudo, syntax validation and AST checking run locally, while live daemon loading is tested in CI with passwordless sudo or via `sudo systemctl start strongswan`.
+1. `POST /api/v1/analyze` saves the upload under `backend/uploads/` as a safe
+   generated job filename and returns `202` with a `job_id`.
+2. A FastAPI background task calls `AnalyzerProvider.get_analysis()` in a
+   worker thread. The provider invokes `IkeParser` and
+   `analyze_data_plane()`.
+3. `ScoringEngine.evaluate()` and `ComplianceEngine.evaluate()` consume the
+   normalized analysis object.
+4. `RemediationEngine` attempts to create a validated remediation payload.
+5. The combined result is persisted as JSON by `ResultStore` under
+   `backend/stored_results/`.
+6. The frontend polls `GET /api/v1/results/{job_id}` until `completed` or
+   `failed`, then renders the dashboard and can request a PDF.
+
+### Live flow
+
+`backend/routes/live.py` owns live capture, simulation, injection, and the
+WebSocket. `LiveSniffer` receives packets in a capture thread and places them
+on a bounded thread-safe queue. `_telemetry_flusher()` drains and batches the
+queue every approximately 150 ms. The rolling inference loop periodically
+classifies a 30-packet window, runs anomaly detection, and broadcasts score or
+alert events. Lifecycle operations are serialized by an `asyncio.Lock` and
+tasks are explicitly cancelled and awaited.
+
+## 4. Repository Map
+
+### Top level
+
+- `README.md`: user-facing overview, setup, architecture, and demo commands.
+- `context.md`: this agent handoff.
+- `CryptoLens_Project_Breakdown.md`: detailed problem decomposition and
+  historical/roadmap planning; useful background, not always the current code.
+- `CryptoLens_Testing_and_Demo_Plan.md`: extensive validation and demo plan.
+- `package.json`, `package-lock.json`: React/Vite frontend dependencies and
+  scripts.
+- `requirements.txt`: Python runtime dependencies.
+- `docker-compose.yml`: testbed, backend, and frontend development services.
+- `vite.config.js`: Vite dev server and `/api` and `/ws` proxy to port 8000.
+- `pytest.ini`: pytest discovery/configuration.
+- `captures/`: checked-in capture metadata/replay sidecars and manifest. Large
+  raw captures may also exist under `data/raw_pcaps/` or be generated.
+- `scripts/`: demo, training, evaluation, traffic, and integration scripts.
+- `tests/`: regression, security, edge-case, mutation, and end-to-end tests.
+
+### Backend
+
+- `backend/main.py`: FastAPI application, CORS, startup logging, and router
+  registration. Default host is `127.0.0.1`, port `8000`.
+- `backend/routes/analyze.py`: asynchronous upload and full PCAP pipeline.
+- `backend/routes/results.py`: persisted job result lookup.
+- `backend/routes/report.py`: executive/technical PDF download.
+- `backend/routes/capture.py`: list and ingest testbed captures.
+- `backend/routes/live.py`: live REST controls, simulation, injection, rolling
+  analysis, and `/ws/live-telemetry`.
+- `backend/routes/remediation.py`: validated remediation generation.
+- `backend/routes/xai.py`: threat localization and saliency endpoint.
+- `backend/schemas/analysis.py`: Pydantic contracts for input/output results.
+- `backend/schemas/sidecar.py`: operator-supplied metadata schema.
+- `backend/capture/pcap_utils.py`: PCAP reader, link/layer parsing, tshark
+  binary discovery, and validation.
+- `backend/capture/demux.py`: separates IKE/control and ESP/data tracks.
+- `backend/engine/control_plane/ike_parser.py`: tshark-first, native-fallback
+  IKEv1/IKEv2 parser and normalized control-plane AST.
+- `backend/engine/control_plane/rules_engine.py`: control-plane rule evaluation.
+- `backend/engine/data_plane/feature_extract.py`: labels, ESP lengths, timing,
+  and fixed-length sequences.
+- `backend/engine/data_plane/preprocessing.py`: shared normalization using model
+  statistics.
+- `backend/engine/data_plane/classifier.py`: public `classify_traffic()`
+  interface, CNN path, optional cloud LLM path, confidence calibration, and
+  label normalization.
+- `backend/engine/data_plane/cnn_model.py`: PyTorch 1D CNN architecture. The
+  `last_conv` property is the XAI target layer.
+- `backend/engine/data_plane/traffic_analyzer.py`: offline data-plane analysis.
+- `backend/engine/data_plane/dataset.py`, `train.py`, `verify.py`,
+  `build_hybrid_dataset.py`, `synth_data.py`: dataset/training/verification
+  tooling.
+- `backend/engine/anomaly/`: IsolationForest/PyOD feature engineering,
+  detector, weights, metadata, and integrity checks.
+- `backend/engine/xai/`: Grad-CAM, Integrated Gradients, threat localization,
+  and RFC 4303 anti-replay window logic.
+- `backend/engine/llm_client/`: optional Gemini client and Pydantic response
+  schema. Cloud use is disabled by default.
+- `backend/engine/inference_pipeline.py`: unified CNN/LLM/fallback interface
+  and heuristic agreement reporting.
+- `backend/scoring/`: weights, compliance mappings, score calculation,
+  standards evaluation, and sidecar consistency checks.
+- `backend/remediation/`: strict `HardenedIPsecConfig`, configuration diff,
+  provider fallback, and Jinja2 templates for swanctl, Cisco, Fortinet, and
+  Palo Alto outputs.
+- `backend/reporting/generate_pdf.py`: ReportLab report generation.
+- `backend/services/analyzer_provider.py`: real/mock analyzer selection and
+  sidecar application.
+- `backend/services/result_store.py`: JSON result persistence.
+- `backend/services/capture_watcher.py`: capture manifest and ingestion helper.
+- `backend/streaming/`: WebSocket broadcaster, Scapy/live sniffer, and packet
+  injection profiles.
+- `backend/mock_data/`: mock analysis input for explicit mock mode only.
+- `backend/data/ai_cache.json`: remediation/explainer cache.
+- `backend/generated_reports/`, `backend/stored_results/`, `backend/uploads/`:
+  runtime/generated data; do not confuse these with source modules.
+
+### Frontend
+
+- `src/main.jsx`: React bootstrap.
+- `src/App.jsx`: application composition, upload/testbed ingestion, result
+  polling, remediation/report actions, and dashboard state.
+- `src/context/ThemeContext.jsx`: theme provider and light/dark state.
+- `src/hooks/useLiveTelemetry.js`: WebSocket/live telemetry integration.
+- `src/components/dashboard/`: score, compliance, traffic, AI, telemetry,
+  heatmap, remediation, executive, and demo views.
+- `src/components/soc/`: SOC shell, navigation, alerts, metrics, trends, and
+  design-system view.
+- `src/components/common/`: shared cards, badges, buttons, and severity chips.
+- `src/components/ScoreDial.jsx`, `PerTunnelBreakdown.jsx`, and
+  `ConfidenceBar.jsx`: primary assessment widgets.
+- `src/data/`, `src/mock/`: UI demo data and impact data.
+- `src/lib/grade.js`: frontend grading helpers.
+- `src/App.css`, `src/index.css`: global and application styling. The existing
+  UI uses Tailwind CSS v4 plus CSS variables and Nunito Sans.
+
+### Testbed
+
+- `testbed/configs/config_matrix.yaml`: six current strongSwan ground-truth
+  configurations.
+- `testbed/configs/template.swanctl.conf.j2`: templated configuration.
+- `testbed/configs/generate_configs.py`: renders peer A/B configs.
+- `testbed/docker/`: strongSwan image and network-namespace setup.
+- `testbed/run_capture_session.sh`: capture orchestration.
+- `testbed/traffic_gen/`: HTTPS, VoIP, and ICMP traffic generators.
+- `testbed/replay_test/inject_duplicate_esp.py`: duplicate ESP replay test.
+- `testbed/configs/generated/`: generated configs; regenerate rather than hand
+  editing them.
+
+## 5. Current Ground-Truth Configurations
+
+The checked-in matrix and capture naming convention cover:
+
+| Config | Mode | Cipher/integrity | DH | PFS |
+|---|---|---|---:|---|
+| `config_01` | Tunnel | AES-256-GCM | 19 | on |
+| `config_02` | Tunnel | AES-128-GCM | 14 | on |
+| `config_03` | Tunnel | AES-256-CBC/SHA-256 | 14 | on |
+| `config_04` | Transport | AES-128-CBC/SHA-1 | 5 | off |
+| `config_05` | Transport | 3DES/SHA-1 | 2 | off |
+| `config_06` | Tunnel | 3DES/SHA-1 | 2 | off |
+
+Use `captures/manifest.json`, replay JSON files, sidecars, and
+`testbed/configs/config_matrix.yaml` as the ground-truth sources. Do not infer
+that every checked-in `.json` is a final API result; some are replay or capture
+metadata.
+
+## 6. API Surface
+
+The backend is normally available at `http://localhost:8000` and the frontend
+at `http://localhost:5173`. Vite proxies `/api` and `/ws` during development.
+
+### Offline analysis
+
+- `POST /api/v1/analyze`: multipart upload with required `file`; optional
+  `sidecar` file or `sidecar_json`. Accepts `.pcap`, `.pcapng`, `.cap` and
+  returns `202 {job_id, status, filename, uploaded_at}`.
+- `GET /api/v1/results/{job_id}`: processing, completed, or failed result.
+- `GET /api/v1/report/{job_id}/pdf?type=executive|technical`: PDF download.
+- `POST /api/v1/remediate/{job_id}`: remediation generation for a completed
+  result.
+- `GET /api/v1/xai/{job_id}`: XAI/threat localization data.
+
+### Capture ingestion
+
+- `GET /api/v1/capture/testbed`: list available testbed captures.
+- `POST /api/v1/capture/ingest`: ingest all captures; supports `force`.
+- `POST /api/v1/capture/ingest/{config_id}`: ingest one configuration.
+- `GET /api/v1/capture/status`: capture/ingestion status.
+
+### Live and streaming
+
+- `GET /ws/live-telemetry`: WebSocket. Client sends JSON `{"type":"ping"}`
+  and receives `pong`; server emits `connection_ack`, `stream_started`, packet
+  events or `telemetry_batch`, `rolling_score`, `anomaly_alert`, and
+  `stream_completed`.
+- `POST /api/v1/live/start?interface=any`: real capture; API auth and raw
+  socket/tshark capability checks apply.
+- `POST /api/v1/live/stop`: stop and await active tasks.
+- `POST /api/v1/live/analyze`: submit the recorded live PCAP to the standard
+  async analysis pipeline.
+- `GET /api/v1/live/status`: live state.
+- `POST /api/v1/live/inject/{profile}`: `hardened`, `vulnerable`, `attack`, or
+  `weak` demonstration profiles.
+- `POST /api/v1/live/simulate`: stream a real uploaded/testbed capture by
+  `job_id` or `config_id`.
+
+Live control routes use `API_AUTH_TOKEN` when configured. The code validates
+interfaces against available interfaces and validates job/config identifiers.
+
+## 7. Important Data Contracts
+
+The completed result has this shape, defined by `backend/schemas/analysis.py`:
+
+```json
+{
+  "job_id": "job_ab12cd34",
+  "status": "completed",
+  "summary": {
+    "overall_security_score": 82.0,
+    "risk_level": "MODERATE",
+    "score_observed_only": 82.0,
+    "score_if_unobserved_fail": 70.0,
+    "score_if_unobserved_pass": 90.0,
+    "score_headline": "...",
+    "coverage": "...",
+    "coverage_ratio": 0.8,
+    "confidence_label": "...",
+    "ai_confidence_score": 0.91,
+    "agreement_flag": true,
+    "processed_packets": 248
+  },
+  "control_plane": {
+    "ike_version": "IKEv2",
+    "operating_mode": "Tunnel",
+    "encryption_algorithm": "AES-256-GCM",
+    "integrity_algorithm": "NONE",
+    "dh_group": 19,
+    "pfs_enabled": true,
+    "key_lifetime_seconds": 28800,
+    "replay_protection_enabled": true,
+    "observability": {},
+    "evidence_source": {}
+  },
+  "data_plane": {
+    "detected_traffic": [],
+    "heuristic_mode_prediction": "tunnel",
+    "llm_mode_prediction": "tunnel",
+    "ai_confidence_score": 0.91,
+    "agreement_flag": true
+  },
+  "score_breakdown": {},
+  "threat_matrix": [],
+  "compliance": {},
+  "pcap_file": "/absolute/path/to/file.pcap",
+  "remediation": {}
+}
+```
+
+`threat_matrix` items contain `finding_id`, `severity`, `category`, `title`,
+`description`, `observed_value`, `source`, `evidence_source`, `observability`,
+and `provenance`. Missing data is not automatically treated as a security
+pass. Scoring exposes observed-only and possible-range values so the UI can be
+honest about coverage.
+
+## 8. Model and Analysis Details
+
+### IKE parser
+
+`IkeParser.parse()` tries tshark first, then native decoding. It handles IKEv1
+and IKEv2 headers, SA proposals, transform IDs, DH groups, transport-mode
+notifications, PFS indicators, lifetimes, and ESN/replay metadata. A capture
+without IKE returns `control_plane: null` with an explicit no-IKE error path;
+downstream classification must remain metadata-only.
+
+### CNN classifier
+
+The current normal path is `CLASSIFIER_BACKEND=cnn`. The classifier expects
+length and IAT sequences, normalizes them to a fixed length of 30, invokes the
+ONNX model, and returns:
+
+- mode: `transport`, `tunnel`, or `unknown`;
+- traffic: `https`, `voip`, `icmp`, or `unknown`;
+- separate mode and traffic confidence;
+- backend identifier.
+
+Confidence is capped by per-class validation F1 values from the model's
+`metrics.json` when present. Do not display raw softmax confidence as measured
+accuracy. The optional cloud Gemini path requires both explicit
+`ENABLE_CLOUD_LLM=true` and a key; it is off by default for air-gapped use.
+
+### Anomaly detection and replay
+
+`AnomalyDetector` uses trained IsolationForest artifacts, a SHA-256 manifest,
+log/z-score features, and a 3-of-5 consecutive window rule. It labels
+statistical anomalies such as bursts, uniform micro-packets, replay attacks,
+or a Sweet32 64-bit block surface. An anomaly is not proof of exfiltration.
+
+`AntiReplayWindow` keys observations by interface/SPI/sequence, uses a bounded
+64-bit sliding window, supports ESN rollover, and avoids cross-interface false
+positives.
+
+### Scoring and compliance
+
+`ScoringEngine` loads `weights_config.yaml` and `compliance_map.yaml`; weights
+must total 100. Categories include encryption, integrity, key exchange, PFS,
+replay protection, key lifetime, IKE version, and mode. Risk thresholds are:
+
+- score >= 90: `LOW`;
+- score >= 75: `MODERATE`;
+- score >= 50: `HIGH`;
+- below 50: `CRITICAL`.
+
+`ComplianceEngine` loads standard mappings from `compliance_standards.yaml`.
+Keep NIST SP 800-77 Rev. 1 and CNSA profiles distinct. P-384/DH20 is labeled
+according to the repository's documented CNSA mapping; do not call it CNSA 2.0
+PQC. PQC/ML-KEM readiness is a documented future consideration, not current
+passive evidence.
+
+### Remediation
+
+`HardenedIPsecConfig` is strict (`extra="forbid"`) and validates identifiers,
+CIDRs, rekey times, approved AEAD ciphers, and approved DH profiles. Rendered
+templates use Jinja2 `StrictUndefined` and are syntax checked. Never render raw
+unvalidated LLM output. Default remediation is deterministic/offline; Ollama
+or Gemini are optional explainers/fallbacks.
+
+## 9. Environment and Runtime Configuration
+
+Important environment variables:
+
+- `HOST` / `PORT`: backend bind address and port; default `127.0.0.1:8000`.
+- `FRONTEND_ORIGIN`: allowed frontend origin; default localhost:5173.
+- `ALLOW_ALL_ORIGINS`: emergency permissive CORS switch; keep false.
+- `ANALYZER_MODE`: `real` (default) or `mock`.
+- `CLASSIFIER_BACKEND`: `cnn` (default) or optional `llm` path.
+- `ENABLE_CLOUD_LLM`: false by default; must be explicit to send metadata out.
+- `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_TIMEOUT_SECONDS`.
+- `LLM_PROVIDER`, `LLM_FALLBACK_PROVIDER`, `OLLAMA_MODEL`.
+- `API_AUTH_TOKEN`: protects live/remediation control operations when set.
+- `CONFIG_ID`, `TRAFFIC`, `REPLAY`: Docker testbed selection variables.
+
+Docker Compose has three development services:
+
+- `testbed`: privileged strongSwan capture generation, mounts `testbed/` and
+  `captures/`.
+- `backend`: host networking, `NET_RAW`/`NET_ADMIN`, port 8000.
+- `frontend`: Node 20, port 5173, installs and runs Vite.
+
+Live capture may require tshark or Linux capabilities. The documented non-root
+option is `setcap cap_net_raw,cap_net_admin=eip` on the Python executable;
+Docker uses `NET_RAW` and `NET_ADMIN`. Never broaden privileges casually.
+
+## 10. Setup and Verification Commands
+
+### Local development
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+npm install
+
+# Terminal 1
+npm run backend
+
+# Terminal 2
+npm run dev
+```
+
+Requires Linux, Python 3.10+, Node 18+, npm, and preferably `tshark` 3.6+.
+The CPU-only PyTorch wheel is recommended:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+### Common checks
+
+```bash
+pytest -v -rs tests scripts backend/scripts
+./scripts/demo_audit.sh
+npm run lint
+npm run build
+python scripts/test_end_to_end.py
+```
+
+The full suite historically reports 76 passed and 1 skipped locally, with the
+live `swanctl --load-all` test skipped when no charon VICI socket is available.
+The exact count can change as tests evolve. Run the command rather than relying
+on this historical number.
+
+Useful focused checks include:
+
+```bash
+pytest -q tests/test_p0_pipeline_stages.py
+pytest -q tests/test_p0_esp_extraction.py tests/test_p0_replay_detection.py
+pytest -q tests/test_p1_remediation_validation.py
+pytest -q tests/test_p2_security_surface.py tests/test_p2_non_root.py
+pytest -q tests/test_end_to_end_all_configs.py
+```
+
+The five-stage `scripts/demo_audit.sh` exercises capture/demux, control-plane
+parsing, CNN/XAI, replay detection, and remediation verification. It should be
+treated as a real executable audit, not a screenshot fixture.
+
+## 11. Testing Expectations
+
+Tests are organized around failure modes that matter for a security tool:
+
+- P0 runtime behavior: async non-blocking operation, task lifecycle, WebSocket
+  heartbeat/broadcasting, ESP/NAT-T extraction, replay detection, pipeline
+  stages, saliency, and LLM air-gap behavior.
+- P1 correctness/claim integrity: provenance, DPI dissection, anomaly metrics,
+  remediation schema validation, Sweet32 semantics, and frontend wiring.
+- P2 security/operations: CORS/auth, interface and job validation, non-root
+  behavior, CPU model execution, and documentation claims.
+- End-to-end: all capture configurations, pipeline/report integration, and
+  expected fixture outcomes.
+- Mutation checks: selected tests are intentionally strong enough to fail when
+  core behavior is reverted.
+
+When changing a shared contract, add or update a focused test before widening
+the test run. For parser/scoring changes, verify evidence provenance and missing
+data behavior, not just the happy path. For frontend changes, check polling,
+WebSocket reconnect, stale job isolation, and empty/failed/loading states.
+
+## 12. Known Limitations and Honest Status
+
+1. Passive analysis cannot recover encrypted IKEv2 Child SA transforms,
+   identities, or plaintext. Sidecars and testbed labels are not wire evidence.
+2. Data-plane traffic labels are statistical classifications. Padding, timing
+   jitter, NAT, fragmentation, and unseen applications can reduce accuracy.
+3. The CNN currently covers HTTPS, VoIP, and ICMP labels. Broader traffic
+   classes described in planning documents are roadmap scope unless a model and
+   validation data for them exist.
+4. `swanctl --load-all` requires a running strongSwan charon daemon and VICI
+   socket. Offline syntax validation is still useful and is the expected local
+   fallback without root/service access.
+5. Cloud LLM use is optional and disabled by policy by default. The application
+   must remain useful in an air-gapped environment.
+6. The repository includes generated artifacts and historical documents. Do
+   not claim a planned file, endpoint, metric, or feature exists until you find
+   its implementation and a test or executable verification path.
+
+## 13. Safe Change Rules for Claude
+
+- Read the owning abstraction and its nearest test before editing.
+- Prefer existing schemas, route helpers, scoring maps, and frontend patterns.
+- Keep the zero-decryption boundary and provenance semantics intact.
+- Do not silently turn unknown/unobserved values into secure/pass values.
+- Do not add credentials, personal absolute paths, generated model artifacts,
+  or large capture files unless explicitly required.
+- Do not hand-edit generated strongSwan configs; update the matrix/template and
+  regenerate them.
+- Keep blocking tshark, model, filesystem, and HTTP work off the async event
+  loop using the existing thread/offload patterns.
+- Preserve bounded queues, bounded dedupe/history collections, task cleanup,
+  and slow-client isolation in live code.
+- Keep cloud providers opt-in and redact sensitive inputs before explanation.
+- Avoid unrelated refactors and do not revert user changes in a dirty worktree.
+- After a substantive edit, run the narrowest executable test that can falsify
+  the change, then run broader lint/build/tests when the risk warrants it.
+
+## 14. Practical Starting Points
+
+For a new offline analysis bug, start at:
+
+`backend/routes/analyze.py` -> `backend/services/analyzer_provider.py` ->
+`backend/engine/control_plane/ike_parser.py` /
+`backend/engine/data_plane/traffic_analyzer.py` ->
+`backend/scoring/scoring_engine.py` -> `backend/services/result_store.py`.
+
+For a live telemetry bug, start at:
+
+`backend/routes/live.py` -> `backend/streaming/live_sniffer.py` ->
+`backend/streaming/ws_broadcaster.py` and the corresponding P0 live tests.
+
+For a dashboard bug, start at `src/App.jsx` or
+`src/hooks/useLiveTelemetry.js`, then follow the specific component and the
+backend result/event shape it consumes.
+
+For a model or confidence issue, start at
+`backend/engine/data_plane/feature_extract.py`,
+`preprocessing.py`, `classifier.py`, and `backend/validation_dataset/` before
+changing model code.
+
+For remediation/reporting, start at the route, then the engine/schema/template
+or PDF builder, and validate hostile/missing fields with the existing P1 tests.

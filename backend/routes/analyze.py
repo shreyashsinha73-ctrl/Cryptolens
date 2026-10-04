@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 import uuid
@@ -13,6 +14,7 @@ from backend.services.analyzer_provider import get_analyzer_provider
 from backend.scoring.compliance_engine import ComplianceEngine
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 UPLOAD_DIR = PROJECT_ROOT / "backend" / "uploads"
@@ -27,10 +29,54 @@ provider = get_analyzer_provider()
 compliance_engine = ComplianceEngine()
 result_store = ResultStore()
 
+def _build_briefing(findings, control_plane):
+    from backend.remediation.remediation_engine import RemediationEngine
+    rem = RemediationEngine().generate_remediation(findings=findings, control_plane=control_plane or {})
+    return {k: rem.get(k) for k in (
+        "executive_summary", "verbose_report", "findings_explanations",
+        "engine_used", "cached_badge", "is_ai_generated",
+    )}
+
+
+async def _attach_briefing(job_id: str, payload: dict):
+    briefing = None
+    try:
+        briefing = await asyncio.wait_for(
+            asyncio.to_thread(_build_briefing, payload.get("threat_matrix") or [], payload.get("control_plane")),
+            timeout=20.0,
+        )
+    except Exception as exc:
+        logger.warning("Executive briefing failed for %s (%s); using rules fallback", job_id, type(exc).__name__)
+    if not briefing or not (briefing.get("verbose_report") or briefing.get("executive_summary")):
+        from backend.services.hardening_advice import build_input, rules_advice
+        text = rules_advice(build_input(payload))["summary"]
+        briefing = {"executive_summary": text, "verbose_report": text, "findings_explanations": [],
+                    "engine_used": "Rules", "cached_badge": None, "is_ai_generated": False}
+    try:
+        stored = result_store.load(job_id)
+        stored["remediation"] = briefing
+        result_store.save(job_id, stored)
+    except Exception as exc:
+        logger.warning("Could not store briefing for %s: %s", job_id, exc)
+
+
 async def process_pcap_pipeline(job_id: str, file_path: Path, sidecar_config: Optional[dict] = None):
     try:
         # Part 2 is integrated through AnalyzerProvider with optional operator sidecar.
         analysis_input = await asyncio.to_thread(provider.get_analysis, str(file_path), sidecar_config=sidecar_config)
+
+        # Observed ESP sequence-number evidence (metadata only) grades replay protection.
+        try:
+            from backend.routes.xai import _extract_esp_records_from_pcap
+            from backend.engine.xai.threat_localizer import detect_replay_attacks
+            esp_records = await asyncio.to_thread(_extract_esp_records_from_pcap, file_path, 500)
+            if esp_records:
+                dp = analysis_input.setdefault("data_plane", {}) or {}
+                analysis_input["data_plane"] = dp
+                dp["esp_packet_count"] = len(esp_records)
+                dp["replay_candidate_count"] = len(detect_replay_attacks(esp_records))
+        except Exception as exc:
+            logger.warning("Replay evidence extraction skipped: %s", type(exc).__name__)
 
         # Part 5: authoritative security scoring
         evaluation = scorer.evaluate(analysis_input)
@@ -59,6 +105,8 @@ async def process_pcap_pipeline(job_id: str, file_path: Path, sidecar_config: Op
             "summary": {
                 "overall_security_score": security_score,
                 "risk_level": risk_level,
+                "base_risk_level": evaluation.get("base_risk_level"),
+                "risk_review": evaluation.get("risk_review"),
                 "score_observed_only": evaluation.get("score_observed_only"),
                 "score_if_unobserved_fail": evaluation.get("score_if_unobserved_fail"),
                 "score_if_unobserved_pass": evaluation.get("score_if_unobserved_pass"),
@@ -80,9 +128,13 @@ async def process_pcap_pipeline(job_id: str, file_path: Path, sidecar_config: Op
             ),
             "compliance": compliance_result,
             "pcap_file": str(Path(file_path).resolve()),
+            "remediation": None,
         }
 
+        # Core analysis persisted FIRST; Gemini steps (if any) must never fail the job.
         result_store.save(job_id, result_payload)
+
+        # AI briefings are decoupled and only requested when operator visits AI Insights.
 
     except Exception as exc:
         error_payload = {
@@ -193,6 +245,9 @@ async def analyze_pcap(
                 "message": f"Uploaded PCAP was not written to {file_path}",
             },
         )
+
+    # Register immediately so GET /results/{job_id} never 404s for a valid job
+    result_store.save(job_id, {"job_id": job_id, "status": "processing"})
 
     # Trigger background task with sidecar configuration
     background_tasks.add_task(process_pcap_pipeline, job_id, file_path, sidecar_data)

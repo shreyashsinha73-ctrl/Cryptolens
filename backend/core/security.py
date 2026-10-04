@@ -40,6 +40,9 @@ def verify_api_auth(request: Optional[Request] = None) -> bool:
         return True
     if os.getenv("DISABLE_API_AUTH", "false").lower() in ("true", "1", "yes"):
         return True
+    if not os.getenv("API_AUTH_TOKEN"):
+        # Local development without configured token
+        return True
 
     provided_token: Optional[str] = None
 

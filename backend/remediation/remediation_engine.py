@@ -502,6 +502,7 @@ Respond with STRICT JSON ONLY matching this schema:
             "is_cached": explanation_res.get("is_cached", False),
             "cached_badge": explanation_res.get("cached_badge"),
             "executive_summary": explanation_res.get("executive_summary", ""),
+            "verbose_report": explanation_res.get("verbose_report") or explanation_res.get("executive_summary", ""),
             "findings_explanations": explanation_res.get("findings_explanations", []),
             "config": config.model_dump(),
             "swanctl_conf": swanctl_conf,

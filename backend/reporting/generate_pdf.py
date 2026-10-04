@@ -85,15 +85,17 @@ def _format_score(value: Any) -> str:
 
 
 def _risk_level(value: Any) -> str:
-    s = str(value or "").strip()
-    if not s or s.upper() == "NONE":
-        return "UNKNOWN"
-    upper_s = s.upper()
-    if "OPERATOR-ATTESTED" in upper_s or "OPERATOR_ATTESTED" in upper_s:
-        return s
-    if upper_s in RISK_LEVELS:
-        return upper_s
-    return s
+    level = str(value).upper().strip()
+
+    if level in RISK_LEVELS:
+        return level
+
+    if "(OPERATOR-ATTESTED)" in level:
+        base = level.replace("(OPERATOR-ATTESTED)", "").strip()
+        if base in RISK_LEVELS:
+            return f"{base} (operator-attested)"
+
+    return "UNKNOWN"
 
 
 def _paragraph(text: Any, style: ParagraphStyle) -> Paragraph:
@@ -345,11 +347,7 @@ def _build_cover(
     result: Dict[str, Any],
     styles: Dict[str, ParagraphStyle],
 ):
-    summary = dict(result.get("summary") or {})
-    scoring = result.get("scoring") or {}
-    for k, v in scoring.items():
-        if k not in summary or summary[k] is None:
-            summary[k] = v
+    summary = result.get("summary") or {}
 
     story = [
         Spacer(1, 22 * mm),
@@ -366,7 +364,7 @@ def _build_cover(
         ("Assessment Status", _safe(result.get("status")).upper()),
         (
             "Risk Score (Headline)",
-            summary.get("score_headline", f"{_format_score(summary.get('score', summary.get('overall_security_score')))} / 100"),
+            summary.get("score_headline", f"{_format_score(summary.get('overall_security_score'))} / 100"),
         ),
         ("Risk Level", _risk_level(summary.get("risk_level"))),
         ("Telemetry Coverage", summary.get("coverage", "N/A")),
@@ -415,14 +413,10 @@ def _build_executive_summary(
     result: Dict[str, Any],
     styles: Dict[str, ParagraphStyle],
 ):
-    summary = dict(result.get("summary") or {})
-    scoring = result.get("scoring") or {}
-    for k, v in scoring.items():
-        if k not in summary or summary[k] is None:
-            summary[k] = v
-    findings = result.get("threat_matrix") or scoring.get("findings") or []
+    summary = result.get("summary") or {}
+    findings = result.get("threat_matrix") or []
 
-    score = summary.get("score") if summary.get("score") is not None else summary.get("overall_security_score")
+    score = summary.get("overall_security_score")
     risk = _risk_level(summary.get("risk_level"))
 
     score_text = escape(_format_score(score))
@@ -511,8 +505,7 @@ def _build_score_breakdown(
     result: Dict[str, Any],
     styles: Dict[str, ParagraphStyle],
 ):
-    scoring = result.get("scoring") or {}
-    breakdown = result.get("score_breakdown") or scoring.get("score_breakdown") or {}
+    breakdown = result.get("score_breakdown") or {}
 
     categories = [
         ("Encryption", "encryption"),

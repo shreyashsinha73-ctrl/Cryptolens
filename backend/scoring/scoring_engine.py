@@ -15,6 +15,30 @@ CATEGORY_TO_FIELD = {
 }
 
 
+_RISK_ORDER = ["LOW", "MODERATE", "HIGH", "CRITICAL"]
+_SEV_TO_RISK = {"CRITICAL": "CRITICAL", "HIGH": "HIGH", "MEDIUM": "MODERATE"}
+
+
+def compute_risk_level(score_observed_only, coverage_ratio, observed_count, findings):
+    """Deterministic risk level: score thresholds, floored by worst observed finding,
+    LOW only when coverage_ratio >= 0.8 (else capped at MODERATE). Returns (level, cap_reason)."""
+    if observed_count <= 0:
+        return "NOT_ASSESSED", ""
+    s = score_observed_only
+    level = "LOW" if s >= 90 else "MODERATE" if s >= 75 else "HIGH" if s >= 50 else "CRITICAL"
+    idx = _RISK_ORDER.index(level)
+    for f in findings or []:
+        if f.get("observability") in ("observed", "operator_supplied"):
+            floor = _SEV_TO_RISK.get(str(f.get("severity", "")).upper())
+            if floor:
+                idx = max(idx, _RISK_ORDER.index(floor))
+    cap_reason = ""
+    if _RISK_ORDER[idx] == "LOW" and coverage_ratio < 0.8:
+        idx = 1
+        cap_reason = f"Capped at MODERATE: only {int(round(coverage_ratio * 100))}% of checks observable (LOW needs >= 80%)."
+    return _RISK_ORDER[idx], cap_reason
+
+
 class ScoringEngine:
     def __init__(self):
         base_dir = Path(__file__).resolve().parent
@@ -232,7 +256,14 @@ class ScoringEngine:
         val = control_plane.get('replay_protection_enabled')
         if val is not None:
             val = str(val).lower()
-        return self._evaluate_param('replay_protection', val, findings, control_plane)
+        awarded = self._evaluate_param('replay_protection', val, findings, control_plane)
+        # Grade by observed ESP sequence evidence: duplicate/replayed sequence numbers reduce the award.
+        dp = getattr(self, "_current_data_plane", None) or {}
+        total = dp.get("esp_packet_count") or 0
+        dupes = dp.get("replay_candidate_count") or 0
+        if awarded > 0 and total > 0 and dupes > 0:
+            awarded *= max(0.0, 1.0 - min(1.0, 2.0 * dupes / total))
+        return awarded
 
     def evaluate_key_lifetime(self, control_plane, findings):
         lifetime = control_plane.get("key_lifetime_seconds")
@@ -301,6 +332,7 @@ class ScoringEngine:
         findings = []
         control_plane = analysis_input.get("control_plane") or {}
         data_plane = analysis_input.get("data_plane") or {}
+        self._current_data_plane = data_plane
 
         h_mode = data_plane.get("heuristic_mode_prediction")
         l_mode = data_plane.get("llm_mode_prediction")
@@ -443,24 +475,65 @@ class ScoringEngine:
         def _fmt(v: float) -> str:
             return str(int(v)) if v.is_integer() else f"{v:.1f}"
 
+        cov_pct = int(round(coverage_ratio * 100))
         if score_if_unobserved_fail == score_if_unobserved_pass:
-            score_headline = f"{_fmt(score_if_unobserved_fail)}/{_fmt(score_if_unobserved_pass)}, coverage {coverage}"
+            score_headline = f"{_fmt(score_observed_only)}/100, coverage {coverage}"
         else:
-            score_headline = f"{_fmt(score_if_unobserved_fail)}–{_fmt(score_if_unobserved_pass)}, coverage {coverage}"
+            score_headline = f"{_fmt(score_observed_only)}/100 (based on {coverage} observable checks)"
 
-        primary_score = score_if_unobserved_fail
+        primary_score = score_observed_only
 
-        if unobserved_controls_count > 0 or contradicted_controls_count > 0:
-            risk_level = "UNVERIFIED"
-        elif operator_supplied_controls_count > 0:
-            base_risk = self.get_risk_level(primary_score)
-            risk_level = f"{base_risk} (operator-attested)"
+        risk_level, cap_reason = compute_risk_level(
+            score_observed_only, coverage_ratio, total_verified, findings
+        )
+        base_risk_for_review = risk_level
+        missing_cats = [
+            k for k, v in score_breakdown.items()
+            if v["observability"] in ("not_observable", "inferred", "contradicted")
+        ]
+
+        HUMAN_NAMES = {
+            "encryption": "Encryption",
+            "integrity": "Integrity",
+            "key_exchange": "DH Group",
+            "pfs": "PFS",
+            "replay_protection": "Replay Protection",
+            "key_lifetime": "Key Lifetime",
+            "ike_version": "IKE Version",
+            "mode": "Operating Mode",
+        }
+
+        failing_items = []
+        for cat in categories:
+            info = score_breakdown.get(cat, {})
+            if info.get("observability") in ("observed", "operator_supplied") and info.get("score", 0) < info.get("max_score", 1):
+                val = control_plane.get(CATEGORY_TO_FIELD.get(cat, cat))
+                if cat == "encryption":
+                    failing_items.append(f"{val} encryption" if val else "weak encryption")
+                elif cat == "pfs":
+                    failing_items.append("no PFS" if not val or str(val).lower() in ("false", "0", "none") else "weak PFS")
+                elif cat == "key_exchange":
+                    failing_items.append(f"DH group {val}" if val else "weak DH group")
+                elif cat == "integrity":
+                    failing_items.append(f"{val} integrity" if val else "weak integrity")
+                elif cat == "replay_protection":
+                    failing_items.append("no replay protection")
+                else:
+                    failing_items.append(f"suboptimal {cat.replace('_', ' ')}")
+        if risk_level == "NOT_ASSESSED":
+            risk_review = "NOT ASSESSED: no checks could be observed in this capture."
         else:
-            risk_level = self.get_risk_level(primary_score)
+            failing_desc = (" and ".join(failing_items[:2]) + " observed") if failing_items else "no weaknesses observed"
+            unver = total_controls - total_verified
+            risk_review = f"{risk_level}: {failing_desc}; {unver} of {total_controls} checks could not be verified."
+            if cap_reason:
+                risk_review += f" {cap_reason}"
 
         return {
             "score": primary_score,
             "risk_level": risk_level,
+            "base_risk_level": base_risk_for_review,
+            "risk_review": risk_review,
             "score_observed_only": score_observed_only,
             "score_if_unobserved_fail": score_if_unobserved_fail,
             "score_if_unobserved_pass": score_if_unobserved_pass,

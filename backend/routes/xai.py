@@ -84,47 +84,6 @@ def _extract_esp_records_from_pcap(pcap_path: Path, max_records: int = 60) -> Li
                 )
             )
 
-    # 2. Fallback: if capture contains no ESP packets (e.g. handshake only), extract all IP frames
-    if not records:
-        cmd_all = [
-            tshark_bin,
-            "-r", str(pcap_path),
-            "-T", "fields",
-            "-e", "frame.number",
-            "-e", "frame.time_epoch",
-            "-e", "ip.src",
-            "-e", "ip.dst",
-            "-e", "_ws.col.Protocol",
-            "-e", "frame.len",
-            "-c", str(max_records),
-        ]
-        try:
-            proc_all = subprocess.run(cmd_all, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=20)
-            lines_all = [l.strip() for l in proc_all.stdout.splitlines() if l.strip()]
-            for line in lines_all:
-                parts = line.split("\t")
-                if len(parts) >= 6:
-                    frame_num = int(parts[0]) if parts[0].isdigit() else (len(records) + 1)
-                    ts = float(parts[1]) if parts[1] else 0.0
-                    src_ip = parts[2] or "10.10.0.1"
-                    dst_ip = parts[3] or "10.10.0.2"
-                    proto = parts[4] or "IP"
-                    pkt_len = int(parts[5]) if parts[5].isdigit() else 0
-
-                    records.append(
-                        ESPPacketRecord(
-                            timestamp=ts,
-                            frame_number=frame_num,
-                            src_ip=src_ip,
-                            dst_ip=dst_ip,
-                            packet_length=pkt_len,
-                            spi=f"proto_{proto}",
-                            seq_num=frame_num,
-                        )
-                    )
-        except Exception as e:
-            logger.warning(f"Fallback frame extraction failed: {e}")
-
     return records
 
 
@@ -177,10 +136,23 @@ async def get_threat_localization(
             ]
 
     if not records:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No packet data found for job '{job_id}'. Please upload a valid PCAP file.",
-        )
+        return {
+            "job_id": job_id,
+            "has_esp": False,
+            "xai": {
+                "threat_packets": [],
+                "xai_heatmap": [],
+                "relative_saliency": [],
+                "frame_mapping": [],
+                "channel_importance": {},
+                "summary": "No ESP data to explain",
+                "has_esp": False,
+                "xai_semantics": (
+                    "Grad-CAM and Integrated Gradients explain the 1D-CNN traffic classifier "
+                    "(mode and inner-traffic heuristics) only, not cryptographic weaknesses."
+                ),
+            },
+        }
 
     findings = []
     if result:

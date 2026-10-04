@@ -3,6 +3,8 @@
 import asyncio
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict
+from backend.services.hardening_advice import get_advice_sync, rules_advice, build_input, TOTAL_TIMEOUT_SECONDS
 from backend.remediation.remediation_engine import RemediationEngine
 from backend.services.result_store import ResultStore
 from backend.core.security import verify_api_auth, validate_job_id
@@ -70,3 +72,31 @@ async def generate_remediation(
         "job_id": job_id,
         "remediation": remediation,
     }
+
+
+class AdviceRequest(BaseModel):
+    """Empty body; unknown fields are rejected."""
+    model_config = ConfigDict(extra="forbid")
+
+
+@router.post("/api/v1/remediate/{job_id}/advice")
+async def hardening_advice(job_id: str, request: Request, body: Optional[AdviceRequest] = None):
+    """Plain-language hardening advice (Gemini if enabled, else rules). Findings only."""
+    verify_api_auth(request)
+    job_id = validate_job_id(job_id)
+    try:
+        result = _store.load(job_id)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(404, f"Job {job_id} not found.")
+    if result.get("status") != "completed":
+        raise HTTPException(409, "Analysis not completed yet.")
+    try:
+        out = await asyncio.wait_for(asyncio.to_thread(get_advice_sync, result), TOTAL_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        out = {"source": "rules", "model": "rules-v1", "advice": rules_advice(build_input(result))}
+    return {"job_id": job_id, "hardening_advice": out["advice"], "source": out["source"], "model": out["model"]}
+
+@router.get("/api/v1/ai/status")
+async def get_ai_status(request: Request = None):
+    from backend.engine.llm_client.client import GeminiClient
+    return GeminiClient.get_status()

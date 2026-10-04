@@ -8,14 +8,19 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "backend": "python -m uvicorn backend.main:app --reload --port 8000",
+    "backend": "python -m uvicorn backend.main:app --reload --reload-dir backend --reload-exclude \"backend/uploads/*\" --reload-exclude \"backend/stored_results/*\" --reload-exclude \"backend/generated_reports/*\" --reload-exclude \"backend/data/*\" --port 8000",
     "dev:all": "concurrently -n \"BACKEND,FRONTEND\" -c \"magenta,cyan\" \"npm run backend\" \"npm run dev\""
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.51.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "recharts": "^3.10.1"
+    "react-router-dom": "^7.18.4",
+    "recharts": "^3.10.1",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.18",

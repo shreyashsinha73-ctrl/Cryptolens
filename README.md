@@ -23,44 +23,101 @@
 
 ## 🏗️ Architecture Pipeline
 
-```text
-               ┌───────────────────────────────────────────────┐
-               │  strongSwan IPsec Testbed (7 Config Scenarios)│
-               └───────────────────────┬───────────────────────┘
-                                       │ Raw .pcap / .pcapng
-                                       ▼
-                       ┌───────────────────────────────┐
-                       │ Stage 2: Passive Demux Engine │
-                       │    (IKE vs ESP Separation)    │
-                       └───────────────┬───────────────┘
-                                       │
-                  ┌────────────────────┴────────────────────┐
-                  │                                         │
-                  ▼                                         ▼
-   ┌─────────────────────────────┐           ┌─────────────────────────────┐
-   │ Stage 3A: Control-Plane AST │           │ Stage 3B: Data-Plane AI     │
-   │ Deterministic IKEv1/IKEv2   │           │ 1D CNN Inference (ONNX)     │
-   │ Cipher, DH, PFS, ESN, Rekey │           │ Mode & Inner Traffic Profiling│
-   └──────────────┬──────────────┘           └──────────────┬──────────────┘
-                  │                                         │
-                  └────────────────────┬────────────────────┘
-                                       │
-                                       ▼
-                       ┌───────────────────────────────┐
-                       │ Stage 3C: Scoring & Compliance│
-                       │ NIST SP 800-77 & CNSA 2.0     │
-                       │ 0–100 Security Score + Threat │
-                       └───────────────┬───────────────┘
-                                       │
-                  ┌────────────────────┴────────────────────┐
-                  │                                         │
-                  ▼                                         ▼
-   ┌─────────────────────────────┐           ┌─────────────────────────────┐
-   │ Stage 4A: React SOC Portal  │           │ Stage 4B: PDF Report Engine │
-   │ Live Score Dial, Telemetry, │           │ Executive & Technical Audit │
-   │ Threat Matrix & Radar Chart │           │ Auto-Remediation Blueprints │
-   └─────────────────────────────┘           └─────────────────────────────┘
+### 1. End-to-End Pipeline
+
+```mermaid
+flowchart TD
+    TB["Stage 1: strongSwan Testbed<br/>7 config scenarios"] -->|".pcap / .pcapng"| DEMUX
+    UP["Upload / Live Sniffer / Injector"] --> DEMUX
+    DEMUX["Stage 2: Passive Demux<br/>IKE (UDP 500/4500) vs ESP"]
+    DEMUX -->|IKE packets| CP["Stage 3A: Control-Plane Parser<br/>tshark + pure-Python IKEv1/v2"]
+    DEMUX -->|ESP flow metadata| DP["Stage 3B: Data-Plane 1D CNN<br/>lengths + IATs"]
+    DEMUX -->|ESP flow metadata| AN["Anomaly Detector<br/>Isolation Forest"]
+    CP --> AST["Handshake AST<br/>cipher, DH, PFS, ESN, rekey"]
+    DP --> MODE["Mode: tunnel / transport<br/>Traffic: HTTPS / VoIP / ICMP"]
+    AST --> SC["Stage 3C: Scoring & Compliance<br/>NIST SP 800-77, CNSA 2.0"]
+    MODE --> SC
+    AN --> SC
+    SC --> RES[("Result Store")]
+    RES --> API["FastAPI /api/v1"]
+    API --> UI["Stage 4A: React SOC Portal"]
+    API --> PDF["Stage 4B: PDF Report"]
+    API --> REM["Remediation Engine<br/>hardened swanctl.conf (Jinja2)"]
+    API --> XAI["XAI: Grad-CAM saliency<br/>threat localizer"]
 ```
+
+### 2. Dual-Track Analysis Logic
+
+```mermaid
+flowchart LR
+    P["Parsed capture"] --> Q{"IKE handshake<br/>present?"}
+    Q -->|Yes| A["Deterministic rules engine<br/>ground-truth crypto proposal"]
+    Q -->|No / mid-session| B["CNN inference on ESP metadata"]
+    B --> F["Fallback chain:<br/>CNN (ONNX/PyTorch) → Gemini LLM (optional) → heuristics"]
+    A --> M["validate_and_merge()<br/>heuristic vs AI agreement flag"]
+    F --> M
+    M --> S["Score 0–100 + risk level"]
+```
+
+### 3. Backend Request Sequence
+
+```mermaid
+sequenceDiagram
+    participant U as User (React)
+    participant API as FastAPI
+    participant D as Demux
+    participant E as Engines (CP / DP / Anomaly)
+    participant S as Scoring
+    participant R as Result Store
+    U->>API: POST /api/v1/analyze (pcap)
+    API->>D: split IKE / ESP
+    D->>E: control + data tracks
+    E->>S: AST + mode/traffic + anomaly
+    S->>R: persist job_id result
+    API-->>U: job_id
+    U->>API: GET /api/v1/results/{job_id}
+    U->>API: GET /api/v1/report/{job_id} (PDF)
+    U->>API: POST /api/v1/remediate/{job_id}
+    U->>API: GET /api/v1/xai/{job_id}
+```
+
+### 4. Live Telemetry
+
+```mermaid
+flowchart LR
+    SN["live_sniffer / injector"] --> WS["ws_broadcaster"]
+    WS -->|"/ws/live-telemetry"| HK["useLiveTelemetry hook"]
+    HK --> PN["LiveTelemetryPanel + LiveWireGraph"]
+    PN -->|"POST /api/v1/live/analyze"| API["FastAPI"]
+```
+
+### 5. Repository Map
+
+```mermaid
+flowchart TD
+    ROOT["Cryptolens/"] --> BE["backend/"]
+    ROOT --> FE["src/ (React + Vite)"]
+    ROOT --> TS["testbed/ + captures/"]
+    ROOT --> SCR["scripts/ (demo, training, tests)"]
+    BE --> B1["capture/ demux"]
+    BE --> B2["engine/ control_plane, data_plane, anomaly, xai, llm_client"]
+    BE --> B3["scoring/ YAML standards + weights"]
+    BE --> B4["remediation/, reporting/, streaming/"]
+    BE --> B5["routes/ + services/ + schemas/"]
+```
+
+### 6. Backend API Summary
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `/api/v1/analyze` | Upload PCAP, run full pipeline |
+| GET | `/api/v1/results/{job_id}` | Fetch stored result |
+| GET | `/api/v1/report/{job_id}` | Download PDF audit |
+| GET/POST | `/api/v1/capture/*` | Testbed listing, ingest, status |
+| POST | `/api/v1/remediate/{job_id}` | Hardened config generation |
+| GET | `/api/v1/xai/{job_id}` | Explainability output |
+| WS | `/ws/live-telemetry` | Live packet stream |
+| POST | `/api/v1/live/*` | start / stop / analyze / inject / simulate |
 
 ---
 

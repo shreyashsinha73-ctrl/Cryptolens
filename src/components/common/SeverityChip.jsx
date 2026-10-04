@@ -25,3 +25,4 @@ export function Skeleton({ lines = 4 }) {
     </div>
   );
 }
+
