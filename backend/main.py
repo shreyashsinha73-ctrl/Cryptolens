@@ -53,6 +53,15 @@ def log_startup_configuration():
     status_str = f"ON (Provider: {provider}, Fallback: {fallback})" if (cloud_ai and provider != "none") else "OFF (Air-gapped / Deterministic Templates only)"
     print(f"[*] CryptoLens Core initialized. Cloud AI Explainer: {status_str}")
 
+@app.get("/")
+def root():
+    return {
+        "status": "online",
+        "service": "CryptoLens Core Analysis Engine",
+        "docs": "/docs",
+        "health": "/health"
+    }
+
 @app.get("/health")
 def health_check():
     return {
