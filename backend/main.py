@@ -53,6 +53,14 @@ def log_startup_configuration():
     status_str = f"ON (Provider: {provider}, Fallback: {fallback})" if (cloud_ai and provider != "none") else "OFF (Air-gapped / Deterministic Templates only)"
     print(f"[*] CryptoLens Core initialized. Cloud AI Explainer: {status_str}")
 
+@app.get("/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "CryptoLens Core Analysis Engine",
+        "version": "1.0.0"
+    }
+
 if __name__ == "__main__":
     import uvicorn
     host = os.getenv("HOST", "127.0.0.1")  # Default to 127.0.0.1 (P2-1)

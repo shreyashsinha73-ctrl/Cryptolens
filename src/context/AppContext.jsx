@@ -9,13 +9,26 @@ export function AppProvider({ children }) {
   const telemetry = useLiveTelemetry();
 
   // Audit / Job state
-  const [activeJobId, setActiveJobId] = useState(null);
+  //const [activeJobId, setActiveJobId] = useState(null);
+  // Audit / Job state (restores previous job ID on refresh)
+  const [activeJobId, setActiveJobId] = useState(() => {
+    return localStorage.getItem('cryptolens_active_job') || null;
+  });
   const [analysisResult, setAnalysisResult] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [ingesting, setIngesting] = useState(false);
   const [briefingPending, setBriefingPending] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Synchronize activeJobId changes to localStorage
+  useEffect(() => {
+    if (activeJobId) {
+      localStorage.setItem('cryptolens_active_job', activeJobId);
+    } else {
+      localStorage.removeItem('cryptolens_active_job');
+    }
+  }, [activeJobId]);
 
   // Poll for executive briefing if missing on completed job
   useEffect(() => {
@@ -136,7 +149,7 @@ export function AppProvider({ children }) {
       });
       if (!res.ok) throw new Error(`Testbed ingestion failed: ${res.status}`);
       const info = await res.json();
-      
+
       // Look for the first completed job_id in results or info.job_id
       const firstJobId = info.job_id || info.results?.find(r => r.status === 'completed')?.job_id;
       if (firstJobId) {
