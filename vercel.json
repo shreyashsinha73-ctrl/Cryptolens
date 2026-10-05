@@ -2,7 +2,7 @@
     "rewrites": [
         {
             "source": "/api/:path*",
-            "destination": "https://cryptolens-u1tc.onrender.com/api/:path*"
+            "destination": "https://cryptolens-6h7d.onrender.com/api/:path*"
         },
         {
             "source": "/(.*)",
