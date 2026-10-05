@@ -17,7 +17,7 @@ import TestbedPage from './pages/TestbedPage';
 
 function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { uploadError, setUploadError } = useApp();
+  const { uploadError, setUploadError, setActiveJobId } = useApp();
 
   return (
     <div className="min-h-screen bg-[#090A0F] text-[#F3F4F6] flex font-sans antialiased">
@@ -39,7 +39,11 @@ function AppLayout() {
             <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 px-4 py-3 rounded-lg text-xs font-semibold flex items-center justify-between">
               <span>⚠ {uploadError}</span>
               <button
-                onClick={() => setUploadError(null)}
+                onClick={() => {
+                  setUploadError(null);
+                  if (setActiveJobId) setActiveJobId(null);
+                  localStorage.removeItem('cryptolens_active_job');
+                }}
                 className="underline hover:text-white cursor-pointer"
               >
                 Dismiss

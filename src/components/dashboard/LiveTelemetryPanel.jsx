@@ -242,7 +242,6 @@ export default function LiveTelemetryPanel({
             Simulate stream
           </button>
 
-          {!jobId && (
           <button
             onClick={() => startCapture('any')}
             disabled={isStreaming || analyzingNetwork}
@@ -250,7 +249,6 @@ export default function LiveTelemetryPanel({
           >
             Live sniff (eth0)
           </button>
-          )}
 
           <button
             onClick={stopCapture}

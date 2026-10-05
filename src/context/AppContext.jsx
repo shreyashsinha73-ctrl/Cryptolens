@@ -64,8 +64,10 @@ export function AppProvider({ children }) {
           notFoundCount += 1;
           if (notFoundCount > 5) {
             if (subscribed) {
-              setUploadError('Job not found after 5 retries');
+              setUploadError('Previous job session expired or not found. Stale session cleared.');
               setUploading(false);
+              localStorage.removeItem('cryptolens_active_job');
+              setActiveJobId(null);
             }
             return true;
           }
