@@ -60,10 +60,10 @@ export default function StitchHeader({ onToggleSidebar }) {
         </div>
 
         {/* Metadata only badge */}
-        <Badge variant="outline" className="hidden lg:inline-flex items-center gap-1.5 py-0.5 px-2 text-[11px] font-mono text-gray-400 border-[#1F2639] bg-[#0F121C]">
-          <Lock className="h-3 w-3 text-gray-400" />
-          <span>Metadata only</span>
-        </Badge>
+        {/* <Badge variant="outline" className="hidden lg:inline-flex items-center gap-1.5 py-0.5 px-2 text-[11px] font-mono text-gray-400 border-[#1F2639] bg-[#0F121C]"> */}
+          {/* <Lock className="h-3 w-3 text-gray-400" /> */}
+          {/* <span>Metadata only</span> */}
+        {/* </Badge > */}
       </div>
 
       {/* Right controls */}
@@ -80,13 +80,13 @@ export default function StitchHeader({ onToggleSidebar }) {
           <span>{uploading ? 'Uploading...' : 'Upload PCAP'}</span>
         </Button>
 
-        {/* Connected Daemon pill */}
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0F121C] border border-[#1F2639] text-[11px] font-mono">
+        {/* /* Connected Daemon pill */
+        /* <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#0F121C] border border-[#1F2639] text-[11px] font-mono">
           <span className={`h-1.5 w-1.5 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
           <span className={isConnected ? 'text-emerald-400' : 'text-amber-400'}>
             {isConnected ? 'Connected daemon v2.4.1' : 'Daemon connecting...'}
           </span>
-        </div>
+        </div> */ }
 
         {/* Theme toggle */}
         <Button
@@ -113,8 +113,8 @@ export default function StitchHeader({ onToggleSidebar }) {
         {/* User profile capsule matching Stitch */}
         <div className="flex items-center gap-2 pl-2 border-l border-[#1F2639]">
           <div className="hidden md:flex flex-col text-right">
-            <span className="text-xs font-semibold text-gray-200 leading-none">Lab Station #04</span>
-            <span className="text-[10px] text-gray-500 font-mono leading-tight mt-0.5">SOC Operator</span>
+            {/* <span className="text-xs font-semibold text-gray-200 leading-none">Lab Station #04</span> */}
+            {/* <span className="text-[10px] text-gray-500 font-mono leading-tight mt-0.5">SOC Operator</span> */}
           </div>
           <div className="h-8 w-8 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
             <User className="h-4 w-4" />

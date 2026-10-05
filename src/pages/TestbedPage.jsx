@@ -161,12 +161,12 @@ export default function TestbedPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-[#0F121C] border border-[#1F2639]">
         <div>
           <div className="flex items-center gap-2">
-            <Server className="h-5 w-5 text-blue-400" />
+            {/* <Server className="h-5 w-5 text-blue-400" /> */}
             <h1 className="text-base font-bold text-white tracking-tight">Testbed Lab Configurations</h1>
           </div>
-          <p className="text-xs text-gray-400 mt-1">
+          {/* <p className="text-xs text-gray-400 mt-1">
             Ground-truth IPsec topologies (config_01 to config_06) strictly audited against wire observations.
-          </p>
+          </p> */}
         </div>
 
         <div className="flex items-center gap-2">
@@ -192,10 +192,10 @@ export default function TestbedPage() {
       <div className="p-4 rounded-xl bg-[#0F121C] border border-[#1F2639] space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-amber-400" />
+            {/* <Zap className="h-4 w-4 text-amber-400" /> */}
             <span className="text-xs font-semibold text-white">Inject Live Wire Demo Profiles</span>
           </div>
-          <span className="text-[11px] font-mono text-gray-500">Live sniffer &amp; WebSocket bus injection</span>
+          {/* <span className="text-[11px] font-mono text-gray-500">Live sniffer &amp; WebSocket bus injection</span> */}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -221,9 +221,9 @@ export default function TestbedPage() {
           <span className="text-xs font-semibold text-white font-mono uppercase">
             Testbed Ground-Truth Matrix
           </span>
-          <span className="text-[10px] font-mono text-gray-500">
+          {/* <span className="text-[10px] font-mono text-gray-500">
             testbed config (ground truth, not wire evidence)
-          </span>
+          </span> */}
         </div>
 
         <div className="overflow-x-auto">

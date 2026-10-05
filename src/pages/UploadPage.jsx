@@ -58,9 +58,9 @@ export default function UploadPage() {
       {/* Page Title */}
       <div className="space-y-1">
         <h1 className="text-xl font-bold text-white tracking-tight">Upload &amp; Analyze Captures</h1>
-        <p className="text-xs text-gray-400">
+        {/* <p className="text-xs text-gray-400">
           Upload offline <code className="font-mono text-gray-300">.pcap</code>, <code className="font-mono text-gray-300">.pcapng</code>, or <code className="font-mono text-gray-300">.cap</code> captures for zero-decryption cryptographic analysis.
-        </p>
+        </p> */}
       </div>
 
       {/* Upload Zone */}
@@ -142,9 +142,9 @@ export default function UploadPage() {
                 Processing {selectedFile?.name || activeJobId || 'capture'}...
               </span>
             </div>
-            <Badge variant="outline" className="border-blue-500/30 text-blue-400 font-mono text-[10px]">
+            {/* <Badge variant="outline" className="border-blue-500/30 text-blue-400 font-mono text-[10px]">
               Engine Active
-            </Badge>
+            </Badge> */}
           </div>
 
           <div className="space-y-2 text-xs font-mono text-gray-400">
@@ -187,10 +187,10 @@ export default function UploadPage() {
         <div className="p-6 rounded-xl bg-[#0F121C] border border-emerald-500/30 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+              {/* <CheckCircle2 className="h-5 w-5 text-emerald-400" /> */}
               <div>
                 <h3 className="text-sm font-semibold text-white">Cryptographic Audit Completed</h3>
-                <p className="text-xs text-gray-400 font-mono">Job ID: {activeJobId}</p>
+                {/* <p className="text-xs text-gray-400 font-mono">Job ID: {activeJobId}</p> */}
               </div>
             </div>
             <Button
@@ -202,9 +202,9 @@ export default function UploadPage() {
             </Button>
           </div>
 
-          <div className="p-3 rounded-lg bg-[#0A0D14] border border-[#1F2639] flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-gray-400">
+          {/* <div className="p-3 rounded-lg bg-[#0A0D14] border border-[#1F2639] flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-gray-400">
             <div>
-              Overall Score: <strong className="text-white text-sm">{analysisResult.overall_score}/100</strong>
+               Overall Score: <strong className="text-white text-sm">{analysisResult.overall_score}/100</strong> 
             </div>
             <div>
               Risk: <strong className="text-rose-400">{analysisResult.summary?.risk_level || 'EVALUATED'}</strong>
@@ -212,7 +212,7 @@ export default function UploadPage() {
             <div>
               Findings: <strong className="text-amber-400">{analysisResult.threat_matrix?.length || 0}</strong>
             </div>
-          </div>
+          </div> */}
         </div>
       )}
     </div>

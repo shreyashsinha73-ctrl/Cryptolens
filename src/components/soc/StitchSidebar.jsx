@@ -26,12 +26,12 @@ const NAV_GROUPS = [
       { path: "/reports", label: "Reports", icon: FileText },
     ],
   },
-  {
-    group: "DOCUMENTATION",
-    items: [
-      { path: "/help", label: "Help & terminology", icon: HelpCircle },
-    ],
-  },
+  // {
+  //   group: "DOCUMENTATION",
+  //   items: [
+  //     { path: "/help", label: "Help & terminology", icon: HelpCircle },
+  //   ],
+  // },
 ]
 
 export default function StitchSidebar({ isOpen, onClose }) {
@@ -54,15 +54,15 @@ export default function StitchSidebar({ isOpen, onClose }) {
         <div className="flex flex-col flex-1 overflow-y-auto">
           {/* Brand header */}
           <div className="flex items-center gap-2.5 px-5 h-14 border-b border-[#1F2639]">
-            <div className="h-7 w-7 rounded-md bg-blue-600 flex items-center justify-center text-white shadow-xs">
+            {/* <div className="h-7 w-7 rounded-md bg-blue-600 flex items-center justify-center text-white shadow-xs">
               <Shield className="h-4 w-4" />
-            </div>
+            </div> */}
             <div className="flex items-baseline gap-1.5">
               <span className="font-semibold text-sm tracking-tight text-white">
                 CryptoLens
               </span>
-              <span className="text-[11px] font-mono text-gray-500">core</span>
-            </div>
+              {/* <span className="text-[11px] font-mono text-gray-500">core</span> */}
+            </div> 
           </div>
 
           {/* Nav items */}
@@ -107,7 +107,7 @@ export default function StitchSidebar({ isOpen, onClose }) {
         </div>
 
         {/* Footer Zero Decryption Assurance card */}
-        <div className="p-3 border-t border-[#1F2639]">
+        {/* <div className="p-3 border-t border-[#1F2639]">
           <div className="p-3 rounded-lg bg-[#0F121C] border border-[#1F2639] space-y-1">
             <div className="flex items-center gap-1.5 text-white text-[11px] font-semibold">
               <Shield className="h-3.5 w-3.5 text-blue-500 shrink-0" />
@@ -117,7 +117,7 @@ export default function StitchSidebar({ isOpen, onClose }) {
               Passive wire inspection only. Cryptographic integrity strictly preserved.
             </p>
           </div>
-        </div>
+        </div> */}
       </aside>
     </>
   )

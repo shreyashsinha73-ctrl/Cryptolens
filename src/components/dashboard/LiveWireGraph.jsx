@@ -431,7 +431,7 @@ export default function LiveWireGraph({
       </div>
 
       {/* Bottom Hint Banner */}
-      <div className="px-4 py-2 bg-[#090C12] border-t border-gray-800/80 flex items-center justify-between text-[11px] font-mono text-gray-400">
+      {/* <div className="px-4 py-2 bg-[#090C12] border-t border-gray-800/80 flex items-center justify-between text-[11px] font-mono text-gray-400">
         <span className="flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
           Click any traveling or settled packet node to inspect full wire metadata
@@ -439,7 +439,7 @@ export default function LiveWireGraph({
         <span className="text-gray-500 hidden sm:inline">
           Zero Decryption Boundary Active (RFC 4303)
         </span>
-      </div>
+      </div> */}
     </div>
   );
 }

@@ -119,18 +119,18 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-xl bg-[#0F121C] border border-[#1F2639]">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-gray-500 uppercase">audit_session:</span>
-            <span className="text-sm font-semibold text-white font-mono">{fileName}</span>
+            {/* <span className="text-xs font-mono text-gray-500 uppercase">audit_session:</span> */}
+            {/* <span className="text-sm font-semibold text-white font-mono">{fileName}</span> */}
             <span className="text-xs text-gray-500 font-mono">
-              ({fileSizeMb} MB &middot; {packetCount} frames &middot; Zero Decryption Scope)
+              {/* ({fileSizeMb} MB &middot; {packetCount} frames &middot; Zero Decryption Scope) */}
             </span>
           </div>
           <div className="flex items-center gap-2 text-xs font-mono text-gray-400">
-            <span>Tunnel: {control.initiator_ip || '10.0.0.1'} &rarr; {control.responder_ip || '10.0.0.2'}</span>
+            {/* <span>Tunnel: {control.initiator_ip || '10.0.0.1'} &rarr; {control.responder_ip || '10.0.0.2'}</span> */}
             <span>&bull;</span>
-            <span>IKE {control.ike_version || 'v2'}</span>
+            {/* <span>IKE {control.ike_version || 'v2'}</span> */}
             <span>&bull;</span>
-            <span>{control.encryption_algorithm || 'AES-GCM'}</span>
+            {/* <span>{control.encryption_algorithm || 'AES-GCM'}</span> */}
           </div>
         </div>
 
@@ -387,16 +387,16 @@ export default function DashboardPage() {
           className="flex items-center justify-between p-3.5 rounded-xl bg-[#0F121C] hover:bg-[#141824] border border-[#1F2639] transition-colors group cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+            {/* <div className="h-8 w-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
               <ShieldAlert className="h-4 w-4" />
-            </div>
+            </div> */}
             <div>
               <div className="text-xs font-semibold text-white group-hover:text-blue-400 transition-colors">
                 Findings &amp; Compliance
               </div>
-              <div className="text-[11px] text-gray-500">
+              {/* <div className="text-[11px] text-gray-500">
                 Detailed evidence log, RFC audit &amp; dimensions
-              </div>
+              </div> */}
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-white transition-colors" />
@@ -407,16 +407,16 @@ export default function DashboardPage() {
           className="flex items-center justify-between p-3.5 rounded-xl bg-[#0F121C] hover:bg-[#141824] border border-[#1F2639] transition-colors group cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+            {/* <div className="h-8 w-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
               <Sparkles className="h-4 w-4" />
-            </div>
+            </div> */}
             <div>
               <div className="text-xs font-semibold text-white group-hover:text-purple-400 transition-colors">
                 AI Cryptographic Insights
               </div>
-              <div className="text-[11px] text-gray-500">
+              {/* <div className="text-[11px] text-gray-500">
                 Gemini executive briefing &amp; hardening actions
-              </div>
+              </div> */}
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-white transition-colors" />
@@ -427,16 +427,16 @@ export default function DashboardPage() {
           className="flex items-center justify-between p-3.5 rounded-xl bg-[#0F121C] hover:bg-[#141824] border border-[#1F2639] transition-colors group cursor-pointer"
         >
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+            {/* <div className="h-8 w-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
               <FileText className="h-4 w-4" />
-            </div>
+            </div> */}
             <div>
               <div className="text-xs font-semibold text-white group-hover:text-emerald-400 transition-colors">
                 Compliance Reports
               </div>
-              <div className="text-[11px] text-gray-500">
+              {/* <div className="text-[11px] text-gray-500">
                 Download NIST SP 800-77 &amp; CNSA 2.0 PDFs
-              </div>
+              </div> */}
             </div>
           </div>
           <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-white transition-colors" />

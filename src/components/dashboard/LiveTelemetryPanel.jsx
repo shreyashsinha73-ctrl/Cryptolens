@@ -229,10 +229,10 @@ export default function LiveTelemetryPanel({
       <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 rounded-lg bg-[#0F121C] border border-[#1F2639]">
         {/* Left: Stream mode pill & Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#161B26] border border-[#242C3F] text-xs font-medium text-emerald-400">
+          {/* <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-[#161B26] border border-[#242C3F] text-xs font-medium text-emerald-400">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             <span>{isStreaming ? 'Streaming' : isConnected ? 'Ready' : 'Offline'}</span>
-          </div>
+          </div> */}
 
           <button
             onClick={handleSimulate}
@@ -260,10 +260,10 @@ export default function LiveTelemetryPanel({
             Stop
           </button>
 
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-gray-400 bg-[#121622] rounded border border-[#1F2639]">
+          {/* <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-mono text-gray-400 bg-[#121622] rounded border border-[#1F2639]">
             <Lock className="h-3 w-3 text-gray-400" />
             <span>Metadata only: passive inspection</span>
-          </div>
+          </div> */}
         </div>
 
         {/* Right: Analyze network button (Only after Live Sniff) */}
@@ -282,9 +282,9 @@ export default function LiveTelemetryPanel({
       {/* ── Stitch Triage Filter Bar ── */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-[11px] font-mono font-semibold tracking-wider text-gray-400 uppercase">
+          {/* <span className="text-[11px] font-mono font-semibold tracking-wider text-gray-400 uppercase">
             TRIAGE
-          </span>
+          </span> */}
 
           {/* Filter Pills matching Stitch */}
           <div className="flex items-center gap-1.5 bg-[#0F121C] p-1 rounded-md border border-[#1F2639]">
@@ -356,7 +356,7 @@ export default function LiveTelemetryPanel({
         </div>
 
         <div className="text-[11px] font-mono text-gray-500">
-          {lowCount > 0 ? `${lowCount} low/benign ESP packets hidden to reduce noise` : 'Passive wire monitoring'}
+          {/* {lowCount > 0 ? `${lowCount} low/benign ESP packets hidden to reduce noise` : 'Passive wire monitoring'} */}
         </div>
       </div>
 
@@ -408,10 +408,10 @@ export default function LiveTelemetryPanel({
               <span>&bull;</span>
               <span>Active tunnel SAs: <strong className="text-gray-300">{espEvents.length > 0 ? '3' : '0'}</strong></span>
             </div>
-            <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+            {/* <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               <span>Ingest OK</span>
-            </div>
+            </div> */}
           </div>
         </div>
 

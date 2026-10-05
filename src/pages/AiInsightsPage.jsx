@@ -81,7 +81,7 @@ export default function AiInsightsPage() {
             <CardHeader>
               <CardTitle className="text-lg text-zinc-100 flex items-center gap-2">
                 Executive Security Briefing
-                {activeResult.remediation && <Badge variant="outline" className="ml-2 bg-purple-500/10 text-purple-400 border-purple-500/20">AI Generated</Badge>}
+                {/* {activeResult.remediation && <Badge variant="outline" className="ml-2 bg-purple-500/10 text-purple-400 border-purple-500/20">AI Generated</Badge>} */}
               </CardTitle>
             </CardHeader>
             <CardContent>
