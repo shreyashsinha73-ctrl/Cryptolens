@@ -24,8 +24,6 @@ COPY captures/ ./captures/
 # Create runtime directories
 RUN mkdir -p /workspace/backend/uploads /workspace/backend/stored_results /workspace/backend/generated_reports /workspace/captures
 
-EXPOSE 8000
-
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
