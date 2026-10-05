@@ -3,9 +3,14 @@ import { useState, useEffect, useCallback } from 'react';
 function getWsUrl() {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL;
   if (typeof window === 'undefined') return 'ws://127.0.0.1:8000/ws/live-telemetry';
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  return `${protocol}//${host}/ws/live-telemetry`;
+  const isLocal =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '127.0.0.1';
+  if (isLocal) {
+    return 'ws://127.0.0.1:8000/ws/live-telemetry';
+  }
+  // In production (Vercel), Vercel cannot proxy WebSockets. Connect directly to Render backend:
+  return 'wss://cryptolens-6h7d.onrender.com/ws/live-telemetry';
 }
 
 // Module-level singleton state to prevent duplicate WebSocket connections
