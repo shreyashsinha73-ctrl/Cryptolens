@@ -59,8 +59,20 @@ async def _attach_briefing(job_id: str, payload: dict):
     except Exception as exc:
         logger.warning("Could not store briefing for %s: %s", job_id, exc)
 
+def _backup_to_cloudinary(file_path_str: str, filename: str):
+    try:
+        from backend.services.cloud_storage import upload_capture_file
+        p = Path(file_path_str)
+        if p.exists():
+            with open(p, "rb") as f:
+                content = f.read()
+            upload_capture_file(content, filename)
+    except Exception as exc:
+        logger.warning(f"Cloudinary backup skipped: {exc}")
+
 
 async def process_pcap_pipeline(job_id: str, file_path: Path, sidecar_config: Optional[dict] = None):
+
     try:
         # Part 2 is integrated through AnalyzerProvider with optional operator sidecar.
         analysis_input = await asyncio.to_thread(provider.get_analysis, str(file_path), sidecar_config=sidecar_config)
@@ -259,17 +271,6 @@ async def analyze_pcap(
             },
         )
 
-def _backup_to_cloudinary(file_path_str: str, filename: str):
-    try:
-        from backend.services.cloud_storage import upload_capture_file
-        p = Path(file_path_str)
-        if p.exists():
-            with open(p, "rb") as f:
-                content = f.read()
-            upload_capture_file(content, filename)
-    except Exception as exc:
-        logger.warning(f"Cloudinary backup skipped: {exc}")
-
     # Register immediately so GET /results/{job_id} never 404s for a valid job
     result_store.save(job_id, {"job_id": job_id, "status": "processing"})
 
@@ -277,11 +278,11 @@ def _backup_to_cloudinary(file_path_str: str, filename: str):
     background_tasks.add_task(process_pcap_pipeline, job_id, file_path, sidecar_data)
     background_tasks.add_task(_backup_to_cloudinary, str(file_path), safe_filename)
 
-
     return UploadResponse(
         job_id=job_id,
         status="processing",
         filename=file.filename,
         uploaded_at=datetime.now(timezone.utc).isoformat(),
     )
+
 

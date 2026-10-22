@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { FileText, Download, AlertTriangle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+
 
 export default function ReportsPage() {
   const { activeJobId, analysisResult: activeResult, loadingResult, uploading } = useApp();
@@ -15,7 +17,12 @@ export default function ReportsPage() {
     setError(null);
     try {
       const res = await fetch(`/api/v1/report/${activeJobId}/pdf?type=${type}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('Analysis session expired on server. Please upload a new PCAP to generate reports.');
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -26,10 +33,11 @@ export default function ReportsPage() {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      setError(`Failed to download ${type} report: ${e.message}`);
+      setError(e.message);
     } finally {
       setDownloading(null);
     }
+
   };
 
 
@@ -106,11 +114,20 @@ export default function ReportsPage() {
       </div>
 
       {error && (
-        <div className="p-4 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5" />
-          <p>{error}</p>
+        <div className="p-4 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+            <p>{error}</p>
+          </div>
+          <Link
+            to="/upload"
+            className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded text-xs font-semibold cursor-pointer shrink-0"
+          >
+            Upload PCAP
+          </Link>
         </div>
       )}
+
     </div>
   );
 }
