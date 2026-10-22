@@ -9,7 +9,7 @@ import { Button } from '../components/ui/button';
 import { Skeleton } from '../components/ui/skeleton';
 
 export default function AiInsightsPage() {
-  const { analysisResult: activeResult, activeJobId } = useApp();
+  const { analysisResult: activeResult, activeJobId, loadingResult, uploading } = useApp();
   const [advice, setAdvice] = useState(null);
   const [adviceLoading, setAdviceLoading] = useState(false);
   const [adviceError, setAdviceError] = useState(null);
@@ -44,6 +44,22 @@ export default function AiInsightsPage() {
     }
   }, [activeJobId, activeResult?.status]);
 
+  if ((loadingResult || uploading) && !activeResult) {
+    return (
+      <div className="flex-1 space-y-6 p-8 overflow-y-auto bg-[#090A0F]">
+        <div className="flex items-center gap-3 text-purple-400 font-mono text-sm">
+          <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+          <span>Restoring cryptographic analysis for session {activeJobId}...</span>
+        </div>
+        <div className="space-y-4">
+          <Skeleton className="h-10 w-64 bg-[#1F2639]" />
+          <Skeleton className="h-48 w-full bg-[#0F121C] border border-[#1F2639] rounded-xl" />
+          <Skeleton className="h-64 w-full bg-[#0F121C] border border-[#1F2639] rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
   if (!activeJobId || !activeResult) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 min-h-[600px]">
@@ -55,6 +71,7 @@ export default function AiInsightsPage() {
       </div>
     );
   }
+
 
   const isCooldown = aiStatus?.cooling_down_until && typeof aiStatus.cooling_down_until === 'number' && aiStatus.cooling_down_until > 0;
   

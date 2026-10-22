@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '../co
 import { Button } from '../components/ui/button';
 
 export default function ReportsPage() {
-  const { activeJobId, analysisResult: activeResult } = useApp();
+  const { activeJobId, analysisResult: activeResult, loadingResult, uploading } = useApp();
   const [downloading, setDownloading] = useState(null);
   const [error, setError] = useState(null);
 
@@ -32,6 +32,22 @@ export default function ReportsPage() {
     }
   };
 
+
+  if ((loadingResult || uploading) && !activeResult) {
+    return (
+      <div className="flex-1 space-y-6 p-8 overflow-y-auto bg-[#090A0F]">
+        <div className="flex items-center gap-3 text-emerald-400 font-mono text-sm">
+          <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <span>Restoring reports for session {activeJobId}...</span>
+        </div>
+        <div className="space-y-4">
+          <div className="h-10 w-64 bg-[#1F2639] rounded animate-pulse" />
+          <div className="h-64 w-full bg-[#0F121C] border border-[#1F2639] rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
   if (!activeJobId || !activeResult) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-zinc-500 min-h-[600px]">
@@ -43,6 +59,7 @@ export default function ReportsPage() {
       </div>
     );
   }
+
 
   return (
     <div className="flex-1 space-y-6 p-8 overflow-y-auto bg-[#090A0F]">

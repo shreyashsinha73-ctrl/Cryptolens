@@ -16,10 +16,10 @@ export default function ThreatHeatmap({ jobId }) {
       .then(async (r) => {
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
-          if (r.status === 404 && err.detail?.includes('No packet data')) {
+          if (r.status === 404 && (err.detail?.includes('No packet data') || err.message?.includes('No packet data'))) {
             throw new Error('No ESP data to explain');
           }
-          throw new Error('XAI not available');
+          throw new Error(err.message || err.detail || 'XAI analysis unavailable');
         }
         return r.json();
       })
@@ -92,7 +92,24 @@ export default function ThreatHeatmap({ jobId }) {
           </p>
         </div>
       ) : error ? (
-        <div className="p-3 text-xs text-amber-500 bg-amber-500/10 rounded-lg">{error}</div>
+        <div className="p-4 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              setError(null);
+              fetch(`/api/v1/xai/${jobId}?method=${method}`)
+                .then(r => r.json())
+                .then(d => { setXaiData(d.xai); setLoading(false); })
+                .catch(e => { setError(e.message); setLoading(false); });
+            }}
+            className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded font-medium cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+
       ) : xaiData ? (
         <div className="space-y-5">
           {xaiData.summary && (

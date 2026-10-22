@@ -75,8 +75,21 @@ async def process_pcap_pipeline(job_id: str, file_path: Path, sidecar_config: Op
                 analysis_input["data_plane"] = dp
                 dp["esp_packet_count"] = len(esp_records)
                 dp["replay_candidate_count"] = len(detect_replay_attacks(esp_records))
+                dp["esp_records"] = [
+                    {
+                        "timestamp": r.timestamp,
+                        "frame_number": r.frame_number,
+                        "src_ip": r.src_ip,
+                        "dst_ip": r.dst_ip,
+                        "packet_length": r.packet_length,
+                        "spi": r.spi,
+                        "seq_num": r.seq_num,
+                    }
+                    for r in esp_records[:60]
+                ]
         except Exception as exc:
             logger.warning("Replay evidence extraction skipped: %s", type(exc).__name__)
+
 
         # Part 5: authoritative security scoring
         evaluation = scorer.evaluate(analysis_input)
@@ -246,11 +259,24 @@ async def analyze_pcap(
             },
         )
 
+def _backup_to_cloudinary(file_path_str: str, filename: str):
+    try:
+        from backend.services.cloud_storage import upload_capture_file
+        p = Path(file_path_str)
+        if p.exists():
+            with open(p, "rb") as f:
+                content = f.read()
+            upload_capture_file(content, filename)
+    except Exception as exc:
+        logger.warning(f"Cloudinary backup skipped: {exc}")
+
     # Register immediately so GET /results/{job_id} never 404s for a valid job
     result_store.save(job_id, {"job_id": job_id, "status": "processing"})
 
     # Trigger background task with sidecar configuration
     background_tasks.add_task(process_pcap_pipeline, job_id, file_path, sidecar_data)
+    background_tasks.add_task(_backup_to_cloudinary, str(file_path), safe_filename)
+
 
     return UploadResponse(
         job_id=job_id,

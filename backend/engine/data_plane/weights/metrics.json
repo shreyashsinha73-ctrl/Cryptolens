@@ -1,0 +1,101 @@
+{
+  "split": "session_level",
+  "held_out_config": null,
+  "train_sessions": 630,
+  "test_sessions": 135,
+  "normalization_mean": [
+    257.9000549316406,
+    0.1396222859621048
+  ],
+  "normalization_std": [
+    368.95294189453125,
+    0.27579066157341003
+  ],
+  "mode_report": {
+    "transport": {
+      "precision": 0.7901234567901234,
+      "recall": 1.0,
+      "f1-score": 0.8827586206896552,
+      "support": 64.0
+    },
+    "tunnel": {
+      "precision": 1.0,
+      "recall": 0.7605633802816901,
+      "f1-score": 0.864,
+      "support": 71.0
+    },
+    "accuracy": 0.8740740740740741,
+    "macro avg": {
+      "precision": 0.8950617283950617,
+      "recall": 0.880281690140845,
+      "f1-score": 0.8733793103448275,
+      "support": 135.0
+    },
+    "weighted avg": {
+      "precision": 0.9005029721079103,
+      "recall": 0.8740740740740741,
+      "f1-score": 0.872892975734355,
+      "support": 135.0
+    }
+  },
+  "traffic_report": {
+    "https": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 40.0
+    },
+    "voip": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 39.0
+    },
+    "icmp": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 56.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 135.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 135.0
+    }
+  },
+  "mode_confusion_matrix": [
+    [
+      64,
+      0
+    ],
+    [
+      17,
+      54
+    ]
+  ],
+  "traffic_confusion_matrix": [
+    [
+      40,
+      0,
+      0
+    ],
+    [
+      0,
+      39,
+      0
+    ],
+    [
+      0,
+      0,
+      56
+    ]
+  ]
+}

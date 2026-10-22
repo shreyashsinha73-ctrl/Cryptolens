@@ -10,11 +10,23 @@ export function AppProvider({ children }) {
 
   // Audit / Job state
   //const [activeJobId, setActiveJobId] = useState(null);
-  // Audit / Job state (restores previous job ID on refresh)
+  // Audit / Job state (restores previous job ID and analysis result on refresh)
   const [activeJobId, setActiveJobId] = useState(() => {
     return localStorage.getItem('cryptolens_active_job') || null;
   });
-  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cryptolens_analysis_result');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loadingResult, setLoadingResult] = useState(() => {
+    const hasJob = Boolean(localStorage.getItem('cryptolens_active_job'));
+    const hasResult = Boolean(localStorage.getItem('cryptolens_analysis_result'));
+    return hasJob && !hasResult;
+  });
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [ingesting, setIngesting] = useState(false);
@@ -27,8 +39,22 @@ export function AppProvider({ children }) {
       localStorage.setItem('cryptolens_active_job', activeJobId);
     } else {
       localStorage.removeItem('cryptolens_active_job');
+      localStorage.removeItem('cryptolens_analysis_result');
     }
   }, [activeJobId]);
+
+  // Synchronize analysisResult changes to localStorage
+  useEffect(() => {
+    if (analysisResult) {
+      try {
+        localStorage.setItem('cryptolens_analysis_result', JSON.stringify(analysisResult));
+      } catch (e) {
+        console.warn('Failed saving analysis result to localStorage:', e);
+      }
+    } else if (!activeJobId) {
+      localStorage.removeItem('cryptolens_analysis_result');
+    }
+  }, [analysisResult, activeJobId]);
 
   // Poll for executive briefing if missing on completed job
   useEffect(() => {
@@ -53,7 +79,10 @@ export function AppProvider({ children }) {
 
   // Poll for job completion
   useEffect(() => {
-    if (!activeJobId) return;
+    if (!activeJobId) {
+      setLoadingResult(false);
+      return;
+    }
     let subscribed = true;
     let notFoundCount = 0;
 
@@ -62,12 +91,17 @@ export function AppProvider({ children }) {
         const res = await fetch(`/api/v1/results/${activeJobId}`);
         if (res.status === 404) {
           notFoundCount += 1;
-          if (notFoundCount > 5) {
+          // Only clear session after repeated 404s if we don't already have a valid analysis result
+          if (notFoundCount > 8) {
             if (subscribed) {
-              setUploadError('Previous job session expired or not found. Stale session cleared.');
+              if (!analysisResult) {
+                setUploadError('Previous job session expired or not found. Stale session cleared.');
+                localStorage.removeItem('cryptolens_active_job');
+                localStorage.removeItem('cryptolens_analysis_result');
+                setActiveJobId(null);
+              }
               setUploading(false);
-              localStorage.removeItem('cryptolens_active_job');
-              setActiveJobId(null);
+              setLoadingResult(false);
             }
             return true;
           }
@@ -79,6 +113,7 @@ export function AppProvider({ children }) {
             if (subscribed) {
               setAnalysisResult(payload);
               setUploading(false);
+              setLoadingResult(false);
               if (!payload.remediation) setBriefingPending(true);
             }
             return true;
@@ -86,6 +121,7 @@ export function AppProvider({ children }) {
             if (subscribed) {
               setUploadError(payload.error?.message || 'Analysis failed');
               setUploading(false);
+              setLoadingResult(false);
             }
             return true;
           }
@@ -114,6 +150,7 @@ export function AppProvider({ children }) {
       if (interval) clearInterval(interval);
     };
   }, [activeJobId]);
+
 
   const handleUploadPcap = useCallback(async (file) => {
     setUploading(true);
@@ -203,6 +240,7 @@ export function AppProvider({ children }) {
     analysisResult,
     setAnalysisResult,
     isRealData,
+    loadingResult,
     uploading,
     setUploading,
     uploadError,
@@ -216,6 +254,7 @@ export function AppProvider({ children }) {
     handleIngestTestbed,
     handleDownloadReport,
   };
+
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

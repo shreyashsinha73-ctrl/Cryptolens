@@ -27,12 +27,27 @@ const SEVERITY_COLORS = {
 const SEVERITY_ORDER = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, INFO: 0 };
 
 export default function FindingsPage() {
-  const { analysisResult: activeResult, activeJobId } = useApp();
+  const { analysisResult: activeResult, activeJobId, loadingResult, uploading } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [severityFilter, setSeverityFilter] = useState('ALL');
   const [expandedRows, setExpandedRows] = useState(new Set());
   const [page, setPage] = useState(1);
   const itemsPerPage = 10;
+
+  if ((loadingResult || uploading) && !activeResult) {
+    return (
+      <div className="flex-1 space-y-6 p-8 overflow-y-auto bg-[#090A0F]">
+        <div className="flex items-center gap-3 text-blue-400 font-mono text-sm">
+          <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <span>Restoring findings for session {activeJobId}...</span>
+        </div>
+        <div className="space-y-4">
+          <div className="h-10 w-64 bg-[#1F2639] rounded animate-pulse" />
+          <div className="h-64 w-full bg-[#0F121C] border border-[#1F2639] rounded-xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   if (!activeJobId || !activeResult) {
     return (
@@ -45,6 +60,7 @@ export default function FindingsPage() {
       </div>
     );
   }
+
 
   const { score_breakdown, control_plane, compliance, threat_matrix } = activeResult;
 

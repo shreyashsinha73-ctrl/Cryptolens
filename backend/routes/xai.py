@@ -31,60 +31,83 @@ def _extract_esp_records_from_pcap(pcap_path: Path, max_records: int = 60) -> Li
     Captures exact frame numbers, timestamps, real source/destination IPs,
     authentic SPIs, sequence numbers, and packet lengths from the wire.
     """
-    tshark_bin = get_tshark_binary()
-
-    # 1. Primary query: ESP packets
-    cmd = [
-        tshark_bin,
-        "-r", str(pcap_path),
-        "-Y", "esp || ip.proto == 50 || ipv6.nxt == 50 || esp.spi",
-        "-T", "fields",
-        "-e", "frame.number",
-        "-e", "frame.time_epoch",
-        "-e", "ip.src",
-        "-e", "ip.dst",
-        "-e", "esp.spi",
-        "-e", "esp.sequence",
-        "-e", "frame.len",
-        "-e", "ipv6.src",
-        "-e", "ipv6.dst",
-        "-c", str(max_records),
-    ]
-
+    records: List[ESPPacketRecord] = []
+    lines = []
     try:
+        tshark_bin = get_tshark_binary()
+        cmd = [
+            tshark_bin,
+            "-r", str(pcap_path),
+            "-Y", "esp || ip.proto == 50 || ipv6.nxt == 50 || esp.spi",
+            "-T", "fields",
+            "-e", "frame.number",
+            "-e", "frame.time_epoch",
+            "-e", "ip.src",
+            "-e", "ip.dst",
+            "-e", "esp.spi",
+            "-e", "esp.sequence",
+            "-e", "frame.len",
+            "-e", "ipv6.src",
+            "-e", "ipv6.dst",
+            "-c", str(max_records),
+        ]
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=20)
         lines = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
-    except Exception as e:
-        logger.warning(f"Error extracting ESP records via tshark: {e}")
-        lines = []
+        for line in lines:
+            parts = line.split("\t")
+            if len(parts) >= 7:
+                frame_num = int(parts[0]) if parts[0].isdigit() else (len(records) + 1)
+                ts = float(parts[1]) if parts[1] else 0.0
+                ipv6_src = parts[7] if len(parts) > 7 and parts[7] else ""
+                ipv6_dst = parts[8] if len(parts) > 8 and parts[8] else ""
+                src_ip = parts[2] or ipv6_src or "10.10.0.1"
+                dst_ip = parts[3] or ipv6_dst or "10.10.0.2"
+                spi = parts[4] or "unknown"
+                seq_num = int(parts[5]) if parts[5].isdigit() else None
+                pkt_len = int(parts[6]) if parts[6].isdigit() else 0
 
-    records: List[ESPPacketRecord] = []
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) >= 7:
-            frame_num = int(parts[0]) if parts[0].isdigit() else (len(records) + 1)
-            ts = float(parts[1]) if parts[1] else 0.0
-            ipv6_src = parts[7] if len(parts) > 7 and parts[7] else ""
-            ipv6_dst = parts[8] if len(parts) > 8 and parts[8] else ""
-            src_ip = parts[2] or ipv6_src or "10.10.0.1"
-            dst_ip = parts[3] or ipv6_dst or "10.10.0.2"
-            spi = parts[4] or "unknown"
-            seq_num = int(parts[5]) if parts[5].isdigit() else None
-            pkt_len = int(parts[6]) if parts[6].isdigit() else 0
-
-            records.append(
-                ESPPacketRecord(
-                    timestamp=ts,
-                    frame_number=frame_num,
-                    src_ip=src_ip,
-                    dst_ip=dst_ip,
-                    packet_length=pkt_len,
-                    spi=spi,
-                    seq_num=seq_num,
+                records.append(
+                    ESPPacketRecord(
+                        timestamp=ts,
+                        frame_number=frame_num,
+                        src_ip=src_ip,
+                        dst_ip=dst_ip,
+                        packet_length=pkt_len,
+                        spi=spi,
+                        seq_num=seq_num,
+                    )
                 )
-            )
+    except Exception as e:
+        logger.warning(f"tshark extraction unavailable ({e}), trying native scapy fallback")
+        try:
+            from scapy.all import rdpcap, ESP, IP, IPv6
+            pkts = rdpcap(str(pcap_path))
+            for idx, pkt in enumerate(pkts):
+                if len(records) >= max_records:
+                    break
+                is_esp = pkt.haslayer(ESP) or (pkt.haslayer(IP) and getattr(pkt[IP], 'proto', None) == 50) or (pkt.haslayer(IPv6) and getattr(pkt[IPv6], 'nh', None) == 50)
+                if is_esp:
+                    src = pkt[IP].src if pkt.haslayer(IP) else (pkt[IPv6].src if pkt.haslayer(IPv6) else "10.10.0.1")
+                    dst = pkt[IP].dst if pkt.haslayer(IP) else (pkt[IPv6].dst if pkt.haslayer(IPv6) else "10.10.0.2")
+                    spi_val = hex(pkt[ESP].spi) if pkt.haslayer(ESP) else "unknown"
+                    seq_val = int(pkt[ESP].seq) if pkt.haslayer(ESP) and hasattr(pkt[ESP], 'seq') else None
+                    ts_val = float(pkt.time) if hasattr(pkt, "time") else 0.0
+                    records.append(
+                        ESPPacketRecord(
+                            timestamp=ts_val,
+                            frame_number=idx + 1,
+                            src_ip=src,
+                            dst_ip=dst,
+                            packet_length=len(pkt),
+                            spi=spi_val,
+                            seq_num=seq_val,
+                        )
+                    )
+        except Exception as scapy_err:
+            logger.warning(f"Native scapy extraction error: {scapy_err}")
 
     return records
+
 
 
 @router.get("/api/v1/xai/{job_id}")

@@ -50,6 +50,12 @@ async def download_pdf(job_id: str, type: str = "executive"):
             result=result,
             report_type=type
         )
+        try:
+            from backend.services.neon_db import save_pdf_to_neon
+            with open(pdf_path, "rb") as f:
+                save_pdf_to_neon(job_id, type, f.read())
+        except Exception:
+            pass
 
     except ValueError as exc:
         raise HTTPException(
@@ -61,6 +67,18 @@ async def download_pdf(job_id: str, type: str = "executive"):
         )
 
     except Exception:
+        try:
+            from backend.services.neon_db import get_pdf_from_neon
+            from fastapi.responses import Response
+            cached_bytes = get_pdf_from_neon(job_id, type)
+            if cached_bytes:
+                return Response(
+                    content=cached_bytes,
+                    media_type="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=Security_Report_{job_id}_{type.lower()}.pdf"}
+                )
+        except Exception:
+            pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={

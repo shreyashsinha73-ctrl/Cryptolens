@@ -12,12 +12,9 @@ ENV/
 # Temporary / synthetic feature datasets
 *.npz
 
-# Model weights & exported artifacts
-weights/
+# Model weights & exported artifacts (keep production weights tracked)
 weights_xconfig/
-*.onnx
-*.pt
-metrics.json
+
 
 # Environment variables & secrets
 .env

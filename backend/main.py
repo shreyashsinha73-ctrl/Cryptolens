@@ -47,11 +47,14 @@ app.include_router(xai.router, tags=["XAI"])
 
 @app.on_event("startup")
 def log_startup_configuration():
+    from backend.services.neon_db import init_neon_tables
+    init_neon_tables()
     cloud_ai = os.getenv("ENABLE_CLOUD_LLM", "false").lower() in ("true", "1", "yes")
     provider = os.getenv("LLM_PROVIDER", "gemini" if cloud_ai else "none").strip().lower()
     fallback = os.getenv("LLM_FALLBACK_PROVIDER", "none").strip().lower()
     status_str = f"ON (Provider: {provider}, Fallback: {fallback})" if (cloud_ai and provider != "none") else "OFF (Air-gapped / Deterministic Templates only)"
     print(f"[*] CryptoLens Core initialized. Cloud AI Explainer: {status_str}")
+
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def root():
